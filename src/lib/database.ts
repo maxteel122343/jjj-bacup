@@ -705,9 +705,9 @@ export async function toggleRoomLike(
     await supabase.from('showcase_rooms').update({ likes_count: newCount }).eq('id', roomId);
 
     if (nextIsLiked) {
-      await supabase.from('room_likes').insert([{ room_id: roomId, user_identifier: userIdentifier }]).catch(() => {});
+      await supabase.from('room_likes').insert([{ room_id: roomId, user_identifier: userIdentifier }]);
     } else {
-      await supabase.from('room_likes').delete().eq('room_id', roomId).eq('user_identifier', userIdentifier).catch(() => {});
+      await supabase.from('room_likes').delete().eq('room_id', roomId).eq('user_identifier', userIdentifier);
     }
   } catch (err) {
     console.warn('Supabase toggleRoomLike fallback:', err);

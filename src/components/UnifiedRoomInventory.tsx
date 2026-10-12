@@ -212,6 +212,76 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
     }
   };
 
+  // Filter poses visible for current active avatar (only correlated poses or universal)
+  const visiblePoses = poses.filter((pose: any) => {
+    if (!activeUserAvatar) return true;
+    const isUniversal =
+      (!pose.associatedAvatarIds || pose.associatedAvatarIds.length === 0) &&
+      (!pose.associatedAvatarNames || pose.associatedAvatarNames.length === 0) &&
+      !pose.pendingAvatarKey &&
+      !pose.pendingAvatarName;
+    if (isUniversal) return true;
+
+    const avId = activeUserAvatar.id;
+    const avName = (activeUserAvatar.name || '').toLowerCase().trim();
+    const avOrig = (activeUserAvatar.originalItemId || '').toLowerCase().trim();
+    const avAsset = (activeUserAvatar.assetId || '').toLowerCase().trim();
+
+    if (pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0) {
+      if (pose.associatedAvatarIds.includes(avId)) return true;
+      if (avOrig && pose.associatedAvatarIds.includes(avOrig)) return true;
+      if (avAsset && pose.associatedAvatarIds.includes(avAsset)) return true;
+    }
+    if (pose.associatedAvatarNames && pose.associatedAvatarNames.length > 0) {
+      if (pose.associatedAvatarNames.some((n: string) => n.toLowerCase().trim() === avName)) return true;
+    }
+    if (pose.pendingAvatarKey) {
+      const k = pose.pendingAvatarKey.toLowerCase().trim();
+      if (k === avId.toLowerCase() || (avOrig && k === avOrig) || (avAsset && k === avAsset)) return true;
+    }
+    if (pose.pendingAvatarName && pose.pendingAvatarName.toLowerCase().trim() === avName) return true;
+
+    return false;
+  });
+
+  const handleSelectPoseWithAvatarSwitch = (pose: AvatarPose) => {
+    const rawPose = pose as any;
+    if (activeUserAvatar && onSelectAvatar && storeAvatars.length > 0) {
+      const isUniversal =
+        (!rawPose.associatedAvatarIds || rawPose.associatedAvatarIds.length === 0) &&
+        (!rawPose.associatedAvatarNames || rawPose.associatedAvatarNames.length === 0) &&
+        !rawPose.pendingAvatarKey &&
+        !rawPose.pendingAvatarName;
+      if (!isUniversal) {
+        const targetAvatar = storeAvatars.find((a) => {
+          const avId = a.id;
+          const avName = (a.name || '').toLowerCase().trim();
+          const avOrig = (a.originalItemId || '').toLowerCase().trim();
+          const avAsset = (a.assetId || '').toLowerCase().trim();
+          if (rawPose.associatedAvatarIds?.length) {
+            if (rawPose.associatedAvatarIds.includes(avId)) return true;
+            if (avOrig && rawPose.associatedAvatarIds.includes(avOrig)) return true;
+            if (avAsset && rawPose.associatedAvatarIds.includes(avAsset)) return true;
+          }
+          if (rawPose.associatedAvatarNames?.length) {
+            if (rawPose.associatedAvatarNames.some((n: string) => n.toLowerCase().trim() === avName)) return true;
+          }
+          if (rawPose.pendingAvatarKey) {
+            const k = rawPose.pendingAvatarKey.toLowerCase().trim();
+            if (k === avId.toLowerCase() || (avOrig && k === avOrig) || (avAsset && k === avAsset)) return true;
+          }
+          if (rawPose.pendingAvatarName && rawPose.pendingAvatarName.toLowerCase().trim() === avName) return true;
+          return false;
+        });
+        if (targetAvatar && targetAvatar.id !== activeUserAvatar.id) {
+          onSelectAvatar(targetAvatar);
+          if (onShowToast) onShowToast(`👤 Avatar alternado para "${targetAvatar.name}" para aplicar a pose.`);
+        }
+      }
+    }
+    onSelectPose(pose);
+  };
+
   // Minimized Floating Pill Mode
   if (isCollapsed && !embedded) {
     return (
@@ -279,7 +349,7 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Poses ({poses.length})
+              Poses ({visiblePoses.length})
             </button>
             <button
               type="button"
@@ -466,7 +536,7 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
               : 'grid grid-cols-2 gap-2 overflow-y-auto max-h-[60vh] pr-1 scrollbar-thin scrollbar-thumb-zinc-700'
           }`}
         >
-          {poses.map((pose) => {
+          {visiblePoses.map((pose) => {
             const isSelected = pose.id === selectedPoseId;
             const poseThumb =
               pose.thumbnailUrl ||
@@ -480,7 +550,7 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
                 onDragStart={(e) => {
                   e.dataTransfer.setData('application/json', JSON.stringify({ type: 'pose', pose }));
                 }}
-                onClick={() => onSelectPose(pose)}
+                onClick={() => handleSelectPoseWithAvatarSwitch(pose)}
                 className={`relative flex-shrink-0 ${
                   orientation === 'horizontal' ? 'w-24 h-28' : 'w-full h-28'
                 } rounded-xl border p-1.5 flex flex-col justify-between cursor-pointer group transition-all ${

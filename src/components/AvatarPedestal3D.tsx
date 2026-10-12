@@ -263,6 +263,10 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
   const prevMouseRef = useRef({ x: 0, y: 0 });
   const internalRotationRef = useRef(fineAdjustments.rotationY);
 
+  // 3D Animation Mixer & Clock for playing GLTF pose animations
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+
   const selectedAccessoryIdRef = useRef(selectedAccessoryId);
   selectedAccessoryIdRef.current = selectedAccessoryId;
 
@@ -482,6 +486,10 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
     const animate = () => {
       animId = requestAnimationFrame(animate);
       const time = performance.now() * 0.001;
+      const delta = clockRef.current.getDelta();
+      if (mixerRef.current) {
+        mixerRef.current.update(delta);
+      }
 
       if (avatarGroupRef.current) {
         avatarGroupRef.current.rotation.y = internalRotationRef.current;
@@ -940,23 +948,116 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
           customModel.position.z = -center.z;
           customModel.position.y = PEDESTAL_SURFACE_Y - scaledBox.min.y;
 
-          // Apply posture adjustments according to currentPose
-          const poseLower = (currentPose || '').toLowerCase();
-          if (poseLower.includes('sentar')) {
+          // 1. Play animation from GLTF if animations are present
+          if (mixerRef.current) {
+            mixerRef.current.stopAllAction();
+            mixerRef.current = null;
+          }
+
+          const poseLower = (currentPose || '').toLowerCase().trim();
+
+          if (gltf.animations && gltf.animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(customModel);
+            mixerRef.current = mixer;
+            let clip = gltf.animations.find((c: any) =>
+              c.name.toLowerCase().includes(poseLower) ||
+              poseLower.includes(c.name.toLowerCase())
+            );
+            if (!clip) {
+              const matchNum = poseLower.match(/\d+/);
+              if (matchNum) {
+                const idx = (parseInt(matchNum[0], 10) - 1) % gltf.animations.length;
+                clip = gltf.animations[idx];
+              }
+            }
+            if (!clip) {
+              clip = gltf.animations[0];
+            }
+            if (clip) {
+              const action = mixer.clipAction(clip);
+              action.reset().fadeIn(0.2).play();
+            }
+          }
+
+          // 2. Identify skeletal bones for humanoid rigged avatars
+          const bones: Record<string, THREE.Bone> = {};
+          customModel.traverse((node: any) => {
+            if (node.isBone) {
+              const bName = node.name.toLowerCase();
+              if (bName.includes('head')) bones.head = node;
+              else if (bName.includes('neck')) bones.neck = node;
+              else if (bName.includes('spine')) bones.spine = node;
+              else if (bName.includes('hips') || bName.includes('pelvis')) bones.hips = node;
+              else if (bName.includes('leftarm') || bName.includes('leftupperarm') || bName.includes('arm_l') || bName.includes('upper_arm.l')) bones.leftArm = node;
+              else if (bName.includes('rightarm') || bName.includes('rightupperarm') || bName.includes('arm_r') || bName.includes('upper_arm.r')) bones.rightArm = node;
+              else if (bName.includes('leftforearm') || bName.includes('forearm_l')) bones.leftForeArm = node;
+              else if (bName.includes('rightforearm') || bName.includes('forearm_r')) bones.rightForeArm = node;
+              else if (bName.includes('leftupleg') || bName.includes('leftleg') || bName.includes('thigh_l')) bones.leftLeg = node;
+              else if (bName.includes('rightupleg') || bName.includes('rightleg') || bName.includes('thigh_r')) bones.rightLeg = node;
+            }
+          });
+
+          // 3. Apply posture & bone adjustments according to currentPose
+          if (poseLower.includes('sentar') || poseLower.includes('sit')) {
             customModel.position.y -= 0.38;
-          } else if (poseLower.includes('deitar') || poseLower.includes('reclinad')) {
+            if (bones.hips) bones.hips.position.y -= 0.3;
+            if (bones.leftLeg) bones.leftLeg.rotation.x = -Math.PI / 2.2;
+            if (bones.rightLeg) bones.rightLeg.rotation.x = -Math.PI / 2.2;
+          } else if (poseLower.includes('deitar') || poseLower.includes('reclinad') || poseLower.includes('lay')) {
             customModel.rotation.x = -Math.PI / 4.2;
             customModel.position.y -= 0.25;
             customModel.position.z -= 0.2;
-          } else if (poseLower.includes('acenar')) {
+          } else if (poseLower.includes('acenar') || poseLower.includes('wave')) {
             customModel.rotation.z = -0.06;
-            customModel.rotation.y = 0.12;
-          } else if (poseLower.includes('rindo')) {
-            customModel.rotation.x = 0.1;
-            customModel.rotation.z = -0.03;
-          } else if (poseLower.includes('modelo') || poseLower.includes('noir')) {
-            customModel.rotation.y = 0.25;
+            customModel.rotation.y = 0.14;
+            if (bones.rightArm) bones.rightArm.rotation.z = -1.9;
+            if (bones.rightForeArm) bones.rightForeArm.rotation.z = -0.7;
+            if (bones.head) bones.head.rotation.y = 0.2;
+          } else if (poseLower.includes('rindo') || poseLower.includes('laugh')) {
+            customModel.rotation.x = 0.12;
+            customModel.rotation.z = -0.04;
+            if (bones.spine) bones.spine.rotation.x = -0.15;
+            if (bones.head) bones.head.rotation.x = -0.22;
+          } else if (
+            poseLower.includes('modelo') ||
+            poseLower.includes('noir') ||
+            poseLower.includes('gala') ||
+            poseLower.includes('pose 1') ||
+            poseLower.includes('pose_1') ||
+            poseLower.includes('avatar pose 1') ||
+            poseLower.includes('avatar1')
+          ) {
+            customModel.rotation.y = 0.26;
             customModel.rotation.z = 0.04;
+            if (bones.spine) bones.spine.rotation.y = 0.12;
+            if (bones.head) { bones.head.rotation.y = 0.18; bones.head.rotation.z = 0.06; }
+            if (bones.leftArm) bones.leftArm.rotation.z = 0.28;
+            if (bones.rightArm) { bones.rightArm.rotation.z = -0.38; bones.rightArm.rotation.x = -0.15; }
+          } else if (poseLower.includes('pose 2') || poseLower.includes('pose_2') || poseLower.includes('avatar2')) {
+            customModel.rotation.y = -0.28;
+            customModel.rotation.z = -0.03;
+            if (bones.head) bones.head.rotation.y = -0.18;
+            if (bones.rightArm) bones.rightArm.rotation.z = -0.3;
+            if (bones.leftArm) bones.leftArm.rotation.z = 0.45;
+          } else if (poseLower.includes('cruz') || poseLower.includes('braço') || poseLower.includes('cross')) {
+            customModel.rotation.y = 0.1;
+            if (bones.leftArm) { bones.leftArm.rotation.y = 0.7; bones.leftArm.rotation.z = 0.4; }
+            if (bones.rightArm) { bones.rightArm.rotation.y = -0.7; bones.rightArm.rotation.z = -0.4; }
+          } else if (poseLower && !poseLower.includes('em pé') && !poseLower.includes('padrao') && !poseLower.includes('default')) {
+            // Stylized stance variation for custom poses so every pose shows visible change
+            let hash = 0;
+            for (let i = 0; i < poseLower.length; i++) {
+              hash = (hash * 31 + poseLower.charCodeAt(i)) & 0xffffff;
+            }
+            const stanceRotY = ((hash % 100) / 100) * 0.45 - 0.22;
+            const stanceTiltZ = (((hash >> 8) % 100) / 100) * 0.08 - 0.04;
+            const stanceTiltX = (((hash >> 16) % 100) / 100) * 0.06 - 0.03;
+            customModel.rotation.y += stanceRotY;
+            customModel.rotation.z += stanceTiltZ;
+            customModel.rotation.x += stanceTiltX;
+            if (bones.head) bones.head.rotation.y = -stanceRotY * 0.6;
+            if (bones.leftArm) bones.leftArm.rotation.z = 0.22 + stanceRotY * 0.3;
+            if (bones.rightArm) bones.rightArm.rotation.z = -0.22 - stanceRotY * 0.3;
           }
 
           alignObjectBottomToY(customModel, 0);
@@ -1261,7 +1362,16 @@ function buildBaseProceduralAvatar(
   const isReclined = poseLower.includes('deitar') || poseLower.includes('reclinad');
   const isLaughing = poseLower.includes('rindo');
   const isWaving = poseLower.includes('acenar');
-  const isModelPose = poseLower.includes('modelo') || poseLower.includes('noir');
+  const isModelPose =
+    poseLower.includes('modelo') ||
+    poseLower.includes('noir') ||
+    poseLower.includes('gala') ||
+    poseLower.includes('pose 1') ||
+    poseLower.includes('pose_1') ||
+    poseLower.includes('avatar pose 1') ||
+    poseLower.includes('avatar1');
+  const isPose2 = poseLower.includes('pose 2') || poseLower.includes('pose_2') || poseLower.includes('avatar2');
+  const isCrossArms = poseLower.includes('cruz') || poseLower.includes('braço') || poseLower.includes('cross');
 
   const skinMat = new THREE.MeshStandardMaterial({
     color: 0xf5cfb3,
@@ -1290,6 +1400,10 @@ function buildBaseProceduralAvatar(
     modelRoot.rotation.x = -Math.PI / 4;
     modelRoot.position.y = -0.25;
     modelRoot.position.z = -0.2;
+  } else if (isModelPose) {
+    modelRoot.rotation.y = 0.25;
+  } else if (isPose2) {
+    modelRoot.rotation.y = -0.28;
   }
 
   // Head & Neck
@@ -1316,6 +1430,13 @@ function buildBaseProceduralAvatar(
   hairMesh.scale.set(0.95, 1.05, 1.02);
   hairMesh.position.set(0, 0.04, -0.02);
   headGroup.add(hairMesh);
+
+  if (isModelPose) {
+    headGroup.rotation.y = 0.18;
+    headGroup.rotation.z = 0.06;
+  } else if (isPose2) {
+    headGroup.rotation.y = -0.2;
+  }
 
   modelRoot.add(headGroup);
 
@@ -1350,8 +1471,17 @@ function buildBaseProceduralAvatar(
     leftArm.rotation.x = 0.5;
     rightArm.rotation.x = 0.8;
   } else if (isModelPose) {
-    leftArm.rotation.z = 0.35;
+    leftArm.rotation.z = 0.38;
     rightArm.rotation.z = -0.45;
+    rightArm.rotation.x = -0.2;
+  } else if (isPose2) {
+    leftArm.rotation.z = 0.52;
+    rightArm.rotation.z = -0.3;
+  } else if (isCrossArms) {
+    leftArm.rotation.y = 0.8;
+    leftArm.rotation.z = 0.5;
+    rightArm.rotation.y = -0.8;
+    rightArm.rotation.z = -0.5;
   } else {
     leftArm.rotation.z = 0.12;
     rightArm.rotation.z = -0.12;

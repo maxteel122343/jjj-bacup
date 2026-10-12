@@ -1286,14 +1286,46 @@ export const App: React.FC = () => {
         pendingAvatarKey: pendingAttachId,
         pendingAvatarName: pendingAttachName,
       };
-      setAvatarPoses((prev) => [
-        newPose,
-        ...prev.filter((p) => p.id !== newPose.id && !(sourceId && p.sourceObjectId === sourceId)),
-      ]);
+      setAvatarPoses((prev) => {
+        const updated = [
+          newPose,
+          ...prev.filter((p) => p.id !== newPose.id && !(sourceId && p.sourceObjectId === sourceId)),
+        ];
+        safeLocalStorageSet('3d_social_creator_poses', JSON.stringify(updated));
+        return updated;
+      });
+
+      // Synchronize published pose into room inventory so it appears in room inventory and hotbar
+      setInventory((prev) => {
+        if (prev.some((inv) => inv.id === newPose.id || inv.displayName === newPose.name)) return prev;
+        const newInvPose: InventoryItem = {
+          id: newPose.id,
+          fileName: `${newPose.name}.glb`,
+          displayName: newPose.name,
+          name: newPose.name,
+          thumbUrl: newPose.thumbnailUrl || payload.item.thumbUrl || '',
+          thumbnailUrl: newPose.thumbnailUrl || payload.item.thumbUrl || '',
+          type: 'pose',
+          fileBlobUrl: payload.item.fileBlobUrl,
+          assetId: payload.item.assetId,
+          createdAt: new Date().toLocaleDateString(),
+        };
+        const updated = [newInvPose, ...prev];
+        safeLocalStorageSet('3d_social_creator_inventory', JSON.stringify(sanitizeItemsForStorage(updated)));
+        return updated;
+      });
+
+      recordUserInventoryItem(user, {
+        storeItemId: newPose.id,
+        itemName: newPose.name,
+        itemType: 'pose',
+        thumbnailUrl: newPose.thumbnailUrl,
+      });
+
       showToast(
         pendingAttachId
           ? `Pose "${newPose.name}" publicada, mas o avatar "${pendingAttachName}" ainda não foi publicado. Ela ficará vinculada e será liberada quando o avatar for publicado.`
-          : `Pose "${newPose.name}" publicada com sucesso! ${
+          : `Pose "${newPose.name}" salva com sucesso no Inventário da Room e na Loja! ${
               newPose.associatedAvatarIds && newPose.associatedAvatarIds.length > 0
                 ? `(Vinculada a ${newPose.associatedAvatarNames?.join(', ')})`
                 : '(Pose Universal)'

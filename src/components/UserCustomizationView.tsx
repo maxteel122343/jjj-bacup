@@ -991,18 +991,53 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
         applied: true,
       }));
 
-  // Poses attached to the avatar on the pedestal (store "Poses do avatar" panel)
-  const [posePanelTab, setPosePanelTab] = useState<'avatar' | 'minhas'>('avatar');
+  // Helper to determine if a pose is associated with a given avatar
+  const isPoseCorrelatedWithAvatar = (pose: AvatarPoseConfig, avatar: StoreAvatar | null): boolean => {
+    if (!avatar) return false;
+    const avId = avatar.id;
+    const avName = (avatar.name || '').toLowerCase().trim();
+    const avOrig = (avatar.originalItemId || '').toLowerCase().trim();
+    const avAsset = (avatar.assetId || '').toLowerCase().trim();
+
+    if (pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0) {
+      if (pose.associatedAvatarIds.includes(avId)) return true;
+      if (avOrig && pose.associatedAvatarIds.includes(avOrig)) return true;
+      if (avAsset && pose.associatedAvatarIds.includes(avAsset)) return true;
+    }
+
+    if (pose.associatedAvatarNames && pose.associatedAvatarNames.length > 0) {
+      if (pose.associatedAvatarNames.some((n) => n.toLowerCase().trim() === avName)) return true;
+    }
+
+    if (pose.pendingAvatarKey) {
+      const key = pose.pendingAvatarKey.toLowerCase().trim();
+      if (key === avId.toLowerCase() || (avOrig && key === avOrig) || (avAsset && key === avAsset)) return true;
+    }
+
+    if (pose.pendingAvatarName) {
+      if (pose.pendingAvatarName.toLowerCase().trim() === avName) return true;
+    }
+
+    return false;
+  };
+
+  const isPoseUniversal = (pose: AvatarPoseConfig): boolean => {
+    const hasIds = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0);
+    const hasNames = Boolean(pose.associatedAvatarNames && pose.associatedAvatarNames.length > 0);
+    const hasPendingKey = Boolean(pose.pendingAvatarKey);
+    const hasPendingName = Boolean(pose.pendingAvatarName);
+    return !hasIds && !hasNames && !hasPendingKey && !hasPendingName;
+  };
+
+  // Poses for the current avatar: ONLY poses that are specifically correlated to currentAvatar OR universal!
+  // Any pose correlated to ANOTHER avatar is strictly hidden from this avatar's panel!
+  const visiblePoses = poses.filter((p) => {
+    if (isPoseCorrelatedWithAvatar(p, currentAvatar)) return true;
+    if (isPoseUniversal(p)) return true;
+    return false;
+  });
+
   const [testPoseId, setTestPoseId] = useState<string | null>(null);
-  const avatarStorePoses = poses.filter(
-    (p) =>
-      p.associatedAvatarIds?.includes(currentAvatar.id) ||
-      (!p.associatedAvatarIds?.length &&
-        ((p.pendingAvatarKey &&
-          [currentAvatar.originalItemId, currentAvatar.assetId].includes(p.pendingAvatarKey)) ||
-          (p.pendingAvatarName && p.pendingAvatarName === currentAvatar.name)))
-  );
-  const effectivePoseTab = avatarStorePoses.length > 0 ? posePanelTab : 'minhas';
   const testPose = poses.find((p) => p.id === testPoseId) || null;
   const pedestalPose = testPose?.name || activePose;
   const isPoseAcquired = (p: AvatarPoseConfig) => Boolean(p.owned) || !p.price;
@@ -1015,6 +1050,25 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
     }
     setTestPoseId(null);
   }, [currentAvatar.id]);
+
+  const handleSelectOrInspectPose = (pose: AvatarPoseConfig) => {
+    // 1. If this pose belongs to a specific avatar that is not currently selected, switch to it!
+    const targetAvatar = storeAvatars.find((a) => isPoseCorrelatedWithAvatar(pose, a));
+    if (targetAvatar && targetAvatar.id !== currentAvatar.id) {
+      keepTestPoseRef.current = true;
+      setSelectedAvatarId(targetAvatar.id);
+      setSelectedItemToInspect(null);
+      setSelectedAccessoryId(null);
+      setActiveAction(null);
+      if (onSelectActiveAvatar) onSelectActiveAvatar(targetAvatar.id);
+      showToast(`👤 Avatar alternado para "${targetAvatar.name}" para exibir a pose.`);
+    }
+
+    // 2. Set test pose and apply pose so pedestal updates immediately
+    setTestPoseId(pose.id);
+    onApplyPose(pose.id);
+    showToast(`👁️ Pose "${pose.name}" exibida no pedestal.`);
+  };
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0a0b0e] text-[#e8d5b5] font-sans flex flex-col select-none">
@@ -2729,13 +2783,15 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
 
         {/* RIGHT COLUMN: POSES DO AVATAR */}
         {!isPedestalFocusMode && (
-        <div className="w-72 lg:w-80 border-l border-[#262833]/80 bg-[#0d0e12] p-6 flex flex-col overflow-hidden flex-shrink-0">
-          <div className="flex items-center justify-between pb-4 border-b border-white/5">
+        <div className="w-72 lg:w-80 border-l border-[#262833]/80 bg-[#0d0e12] p-5 flex flex-col overflow-hidden flex-shrink-0">
+          <div className="flex items-center justify-between pb-3.5 border-b border-white/5">
             <div>
-              <h2 className="text-sm md:text-base font-serif text-zinc-200 tracking-wide">
+              <h2 className="text-sm md:text-base font-serif text-zinc-200 tracking-wide font-bold">
                 Poses do Avatar
               </h2>
-              <span className="text-[10px] text-zinc-500 font-mono">{poses.length} poses</span>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                {visiblePoses.length} {visiblePoses.length === 1 ? 'pose' : 'poses'}
+              </span>
             </div>
 
             <button
@@ -2743,7 +2799,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
               onClick={() => {
                 setPublishObjectType('pose');
                 setNewPublishName('');
-                setPublishAssociatedAvatarIds([]);
+                setPublishAssociatedAvatarIds([currentAvatar.id]);
                 setNewPublishPrice(0);
                 setPublishMode('avancado');
                 setShowPublishModal(true);
@@ -2756,280 +2812,138 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
             </button>
           </div>
 
-          {avatarStorePoses.length > 0 && (
-            <div className="flex gap-1 pt-3">
-              {([
-                ['avatar', `Deste avatar (${avatarStorePoses.length})`],
-                ['minhas', 'Minhas poses'],
-              ] as const).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setPosePanelTab(id)}
-                  className={`flex-1 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
-                    effectivePoseTab === id
-                      ? 'bg-[#ffd700] text-black border-[#ffd700]'
-                      : 'bg-black/40 text-zinc-300 border-white/10 hover:text-white'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
           <div className="flex-1 overflow-y-auto pt-4 pr-1 space-y-3 scrollbar-thin scrollbar-thumb-zinc-800">
-            {effectivePoseTab === 'avatar' && avatarStorePoses.map((pose) => {
-              const isRestricted = pose.access !== 'free';
-              const avatarOwned = Boolean(currentAvatar.owned || currentAvatar.applied);
-              const acquired = isPoseAcquired(pose);
-              const canBuy = !isRestricted || avatarOwned;
-              const isTesting = testPoseId === pose.id;
-              return (
-                <div
-                  key={pose.id}
-                  className={`rounded-xl border p-3 flex flex-col gap-2 ${
-                    isTesting ? 'bg-[#15171e] border-cyan-400/70' : 'bg-[#121317] border-[#22242d]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-zinc-200 truncate">{pose.name}</span>
-                    <span className="text-[10px] font-mono text-zinc-400 whitespace-nowrap">
-                      {acquired ? '✓ Adquirida' : `${pose.price} 🪙`}
-                    </span>
-                  </div>
-                  <span className="text-[9px] font-mono text-zinc-500">
-                    {isRestricted ? '🔒 Só com o avatar' : '🔓 Sem restrição'}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setTestPoseId(isTesting ? null : pose.id)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                        isTesting ? 'bg-cyan-400 text-black' : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200'
-                      }`}
-                    >
-                      {isTesting ? 'Testando…' : '▶ Testar'}
-                    </button>
-                    {acquired ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onApplyPose(pose.id);
-                          showToast(`Pose "${pose.name}" aplicada ao Avatar!`);
-                        }}
-                        className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-[#ffd700]/15 hover:bg-[#ffd700] hover:text-black text-[#ffd700] border border-[#ffd700]/40 cursor-pointer"
-                      >
-                        Aplicar
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!canBuy}
-                        onClick={() => handleBuyPose(pose)}
-                        title={canBuy ? 'Adquirir pose' : 'Adquira o avatar primeiro'}
-                        className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        {canBuy ? 'Adquirir' : 'Requer avatar'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {(effectivePoseTab === 'avatar'
-              ? []
-              : poses.filter((p) => !(p.associatedAvatarIds?.length && !isPoseAcquired(p)))
-            ).map((pose) => {
-              const isRestricted = Boolean(
-                pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free'
-              );
-              const userOwnsAvatar =
-                !isRestricted ||
-                pose.associatedAvatarIds!.some((id) => {
-                  const av = storeAvatars.find((a) => a.id === id);
-                  return av && (av.owned || av.applied);
-                });
-              const isLocked = isRestricted && !userOwnsAvatar;
-              const isFreeOrOwned =
-                pose.price === undefined || pose.price === 0 || pose.owned;
-              const isDragOver = dragOverPoseId === pose.id;
+            {visiblePoses.length === 0 ? (
+              <div className="p-4 rounded-xl bg-black/30 border border-white/5 text-center text-xs text-zinc-400">
+                Nenhuma pose vinculada a este avatar ainda. Poses anexadas a outros avatares são exibidas apenas ao selecionar o avatar correspondente.
+              </div>
+            ) : (
+              visiblePoses.map((pose) => {
+                const isUniversal = isPoseUniversal(pose);
+                const isTesting = testPoseId === pose.id;
+                const poseThumb =
+                  pose.thumbnailUrl ||
+                  currentAvatar.thumb ||
+                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+                const isDragOver = dragOverPoseId === pose.id;
 
-              return (
-                <div
-                  key={pose.id}
-                  draggable={true}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(
-                      'application/json',
-                      JSON.stringify({ type: 'pose', pose })
-                    );
-                    e.dataTransfer.effectAllowed = 'copyMove';
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'copy';
-                    if (dragOverPoseId !== pose.id) {
-                      setDragOverPoseId(pose.id);
-                    }
-                  }}
-                  onDragLeave={() => {
-                    if (dragOverPoseId === pose.id) {
-                      setDragOverPoseId(null);
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragOverPoseId(null);
-                    try {
-                      const rawData = e.dataTransfer.getData('application/json');
-                      if (rawData) {
-                        const payload = JSON.parse(rawData);
-                        if (payload.type === 'avatar' && payload.avatar) {
-                          handleLinkAvatarToPoseAndRoomAccess(payload.avatar, pose);
-                        }
-                      }
-                    } catch (err) {
-                      console.warn('Drop on pose card error:', err);
-                    }
-                  }}
-                  className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between select-none ${
-                    isDragOver
-                      ? 'bg-[#1a1c26] border-[#ffd700] ring-2 ring-[#ffd700] scale-[1.02] shadow-[0_0_20px_rgba(255,215,0,0.4)]'
-                      : isLocked
-                      ? 'bg-[#0f1013] border-white/5 opacity-75 hover:opacity-100'
-                      : pose.applied
-                      ? 'bg-[#15171e] border-[#d4af37]/80 ring-1 ring-[#d4af37]/40'
-                      : 'bg-[#121317] border-[#22242d] hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-semibold text-zinc-200 truncate">
-                      {pose.name}
-                    </span>
-                    {pose.applied ? (
-                      <span className="text-[10px] font-mono text-[#d4af37] flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Ativa
-                      </span>
-                    ) : isLocked ? (
-                      <span className="text-[10px] font-mono text-red-400 flex items-center gap-0.5">
-                        <Lock className="w-3 h-3" /> Bloqueada
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {/* Drop hint when an avatar is dragged over */}
-                  {isDragOver && (
-                    <div className="my-1.5 py-1 px-2 rounded-lg bg-[#ffd700]/20 border border-[#ffd700] text-[#ffd700] text-[10px] font-bold flex items-center justify-center gap-1 animate-pulse">
-                      <span>✨</span>
-                      <span>Solte o Avatar aqui para vincular & adicionar ao Acesso das Rooms!</span>
-                    </div>
-                  )}
-
-                  <div className="mb-2">
-                    {isRestricted ? (
-                      <span
-                        className={`text-[9px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 max-w-full truncate ${
-                          isLocked
-                            ? 'bg-red-950/40 border-red-500/40 text-red-300'
-                            : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                        }`}
-                        title={pose.associatedAvatarNames?.join(', ')}
-                      >
-                        {isLocked ? (
-                          <Lock className="w-2.5 h-2.5 flex-shrink-0" />
-                        ) : (
-                          <Check className="w-2.5 h-2.5 flex-shrink-0 text-emerald-400" />
-                        )}
-                        <span className="truncate">
-                          Requer: {pose.associatedAvatarNames?.join(' ou ') || 'Avatar da Loja'}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 inline-flex items-center gap-1">
-                        <span>🌐</span>
-                        <span>Universal (Todas as rooms)</span>
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Drag indicator handle */}
+                return (
                   <div
-                    className="flex items-center justify-center gap-1 text-[9px] font-mono text-zinc-400 hover:text-[#ffd700] py-0.5 mb-2 cursor-grab active:cursor-grabbing border border-dashed border-white/10 hover:border-[#ffd700]/50 rounded bg-black/30"
-                    title="Arraste esta Pose para o Inventário de Acesso das Rooms!"
-                  >
-                    <GripVertical className="w-2.5 h-2.5 text-[#ffd700]" />
-                    <span>Arraste p/ Rooms</span>
-                  </div>
-
-                  {isLocked ? (
-                    <div className="space-y-1.5">
-                      {(() => {
-                        const reqAvatar =
-                          storeAvatars.find((a) => pose.associatedAvatarIds?.includes(a.id)) ||
-                          storeAvatars.find((a) => pose.associatedAvatarNames?.includes(a.name));
-                        if (!reqAvatar) return null;
-                        return (
-                          <div className="flex items-center gap-2 p-1.5 rounded-lg bg-black/40 border border-[#d4af37]/30">
-                            <img
-                              src={reqAvatar.thumb}
-                              alt={reqAvatar.name}
-                              className="w-10 h-10 rounded-md object-cover flex-shrink-0"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-[9px] font-mono text-zinc-500 uppercase">Avatar necessário</div>
-                              <div className="text-[11px] font-bold text-zinc-100 truncate">{reqAvatar.name}</div>
-                              <div className="text-[10px] font-mono text-[#ffd700]">
-                                🪙 {(reqAvatar.price || 0).toLocaleString('pt-BR')}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleBuyStoreAvatar(reqAvatar)}
-                              className="px-2 py-1 rounded-md bg-[#d4af37] hover:bg-[#ffd700] text-black text-[10px] font-bold cursor-pointer"
-                            >
-                              Comprar
-                            </button>
-                          </div>
-                        );
-                      })()}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const target =
-                            storeAvatars.find((a) => pose.associatedAvatarIds?.includes(a.id)) ||
-                            storeAvatars.find((a) => pose.associatedAvatarNames?.includes(a.name));
-                          if (target && target.id !== currentAvatar.id) {
-                            keepTestPoseRef.current = true;
-                            setSelectedAvatarId(target.id);
-                            setSelectedItemToInspect(null);
-                            setSelectedAccessoryId(null);
-                            setActiveAction(null);
+                    key={pose.id}
+                    draggable={true}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(
+                        'application/json',
+                        JSON.stringify({ type: 'pose', pose })
+                      );
+                      e.dataTransfer.effectAllowed = 'copyMove';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'copy';
+                      if (dragOverPoseId !== pose.id) {
+                        setDragOverPoseId(pose.id);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverPoseId === pose.id) {
+                        setDragOverPoseId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverPoseId(null);
+                      try {
+                        const rawData = e.dataTransfer.getData('application/json');
+                        if (rawData) {
+                          const payload = JSON.parse(rawData);
+                          if (payload.type === 'avatar' && payload.avatar) {
+                            handleLinkAvatarToPoseAndRoomAccess(payload.avatar, pose);
                           }
-                          setTestPoseId(pose.id);
-                          showToast(`👁️ Visualizando a pose "${pose.name}" no pedestal.`);
-                        }}
-                        className="w-full py-1.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-200 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <span>👁️</span>
-                        <span>Ver a pose</span>
-                      </button>
+                        }
+                      } catch (err) {
+                        console.warn('Drop on pose card error:', err);
+                      }
+                    }}
+                    className={`rounded-xl border p-3 transition-all flex flex-col justify-between select-none ${
+                      isDragOver
+                        ? 'bg-[#1a1c26] border-[#ffd700] ring-2 ring-[#ffd700] scale-[1.02] shadow-[0_0_20px_rgba(255,215,0,0.4)]'
+                        : isTesting
+                        ? 'bg-[#15171e] border-cyan-400/80 ring-1 ring-cyan-400/40 shadow-[0_0_12px_rgba(34,211,238,0.2)]'
+                        : pose.applied
+                        ? 'bg-[#15171e] border-[#d4af37]/80 ring-1 ring-[#d4af37]/40'
+                        : 'bg-[#121317] border-[#22242d] hover:border-zinc-700'
+                    }`}
+                  >
+                    {/* Header info */}
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/50 border border-white/10 flex-shrink-0">
+                        <img
+                          src={poseThumb}
+                          alt={pose.name}
+                          className="w-full h-full object-cover object-top"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-semibold text-zinc-100 truncate" title={pose.name}>
+                            {pose.name}
+                          </span>
+                          {pose.applied ? (
+                            <span className="text-[10px] font-mono text-[#d4af37] flex items-center gap-0.5 flex-shrink-0">
+                              <Check className="w-3 h-3" /> Ativa
+                            </span>
+                          ) : isTesting ? (
+                            <span className="text-[10px] font-mono text-cyan-300 flex items-center gap-0.5 flex-shrink-0">
+                              👁️ No pedestal
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5">
+                          {isUniversal ? (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 inline-flex items-center gap-1">
+                              <span>🌐</span> Universal
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/50 border border-amber-500/40 text-amber-300 inline-flex items-center gap-1 truncate max-w-full" title={currentAvatar.name}>
+                              <span>👤</span> Deste Avatar
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  ) : !isFreeOrOwned ? (
-                    <button
-                      type="button"
-                      onClick={() => handleBuyPose(pose)}
-                      className="w-full py-1.5 rounded-lg bg-gradient-to-r from-[#d4af37] to-[#ffd700] hover:brightness-110 text-black text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+
+                    {/* Drag indicator handle */}
+                    <div
+                      className="flex items-center justify-center gap-1 text-[9px] font-mono text-zinc-400 hover:text-[#ffd700] py-1 mb-2 cursor-grab active:cursor-grabbing border border-dashed border-white/10 hover:border-[#ffd700]/50 rounded-lg bg-black/30"
+                      title="Arraste esta Pose para o Inventário de Acesso das Rooms!"
                     >
-                      <Coins className="w-3.5 h-3.5 text-black" />
-                      <span>Comprar ({pose.price} 🪙)</span>
-                    </button>
-                  ) : (
+                      <GripVertical className="w-3 h-3 text-[#ffd700]" />
+                      <span>Arraste p/ Rooms</span>
+                    </div>
+
+                    {/* Actions row: Ver / Aplicar / Rooms */}
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        onClick={() => handleSelectOrInspectPose(pose)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          isTesting
+                            ? 'bg-cyan-400 text-black font-bold shadow-md'
+                            : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200'
+                        }`}
+                        title="Ver esta pose no pedestal"
+                      >
+                        <span>👁️</span>
+                        <span>{isTesting ? 'Exibindo' : 'Ver'}</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => {
                           onApplyPose(pose.id);
+                          setTestPoseId(null);
                           showToast(`Pose "${pose.name}" aplicada ao Avatar!`);
                         }}
                         className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 ${
@@ -3037,6 +2951,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                             ? 'bg-[#d4af37] text-black font-bold'
                             : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300'
                         }`}
+                        title="Definir como pose ativa do avatar"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>{pose.applied ? 'Ativa' : 'Aplicar'}</span>
@@ -3045,29 +2960,31 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAddPoseToRoomAccess(pose)}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#ffd700]/15 hover:bg-[#ffd700] text-[#ffd700] hover:text-black border border-[#ffd700]/40 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
+                        className="px-2 py-1.5 rounded-lg bg-[#ffd700]/15 hover:bg-[#ffd700] text-[#ffd700] hover:text-black border border-[#ffd700]/40 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-0.5"
                         title="Adicionar esta pose ao Inventário de Acesso das Rooms"
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-3 h-3" />
                         <span>Rooms</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onRemovePose(pose.id);
-                          showToast(`Pose "${pose.name}" desativada.`);
-                        }}
-                        className="p-1.5 rounded-lg bg-zinc-900 border border-white/5 hover:border-white/20 text-zinc-400 hover:text-white text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                        title="Remover pose ativa"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      {pose.applied && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRemovePose(pose.id);
+                            showToast(`Pose "${pose.name}" desativada.`);
+                          }}
+                          className="p-1.5 rounded-lg bg-zinc-900 border border-white/5 hover:border-white/20 text-zinc-400 hover:text-white text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
+                          title="Desativar pose"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
         )}
@@ -3083,12 +3000,18 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
             if (onSelectActiveAvatar) onSelectActiveAvatar(slot.itemId);
             showToast(`Avatar "${slot.name}" selecionado.`);
           } else {
-            onApplyPose(slot.itemId);
-            showToast(`Pose "${slot.name}" aplicada ao Avatar.`);
+            const targetPose = poses.find((p) => p.id === slot.itemId || p.name === slot.name) || slot.poseData;
+            if (targetPose) {
+              handleSelectOrInspectPose(targetPose);
+            } else {
+              onApplyPose(slot.itemId);
+              setTestPoseId(slot.itemId);
+              showToast(`Pose "${slot.name}" aplicada ao Avatar.`);
+            }
           }
         }}
         activeAvatarId={selectedAvatarId}
-        activePoseId={poses.find((p) => p.applied)?.id}
+        activePoseId={poses.find((p) => p.applied)?.id || testPoseId || undefined}
         onShowToast={showToast}
       />}
 
