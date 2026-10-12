@@ -203,6 +203,18 @@ export const SpotVisualConfigModal: React.FC<SpotVisualConfigModalProps> = ({
               <span>Ampla (250%)</span>
             </div>
           </div>
+          {/* Hide spot names toggle */}
+          <label className="flex items-center justify-between gap-3 cursor-pointer text-xs">
+            <span className="font-semibold text-zinc-300">
+              Ocultar nomes dos spots (mostra só ao passar o mouse)
+            </span>
+            <input
+              type="checkbox"
+              checked={!!config.hideSpotNames}
+              onChange={(e) => onChangeConfig({ ...config, hideSpotNames: e.target.checked })}
+              className="w-4 h-4 accent-cyan-400 cursor-pointer"
+            />
+          </label>
           {/* Relative Surface Spot Radius Slider */}
           <div>
             <div className="flex items-center justify-between text-xs mb-1">
@@ -246,6 +258,7 @@ export const SpotVisualConfigModal: React.FC<SpotVisualConfigModalProps> = ({
                 arrowScale: 1.0,
                 signalScale: 1.0,
                 relativeSpotRadius: 0.12,
+                hideSpotNames: false,
               })
             }
             className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold cursor-pointer transition-colors"

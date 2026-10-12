@@ -88,9 +88,12 @@ export interface PlacedObject {
   id: string;
   assetId: string;
   name: string;
-  type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio';
+  type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio' | 'pose';
   isAvatar?: boolean;
   isAccessory?: boolean;
+  isPose?: boolean;
+  // Avatars (editor object ids or store avatar ids) this pose object is attached to
+  attachedAvatarIds?: string[];
   accessoryAttachment?: AccessoryAttachmentPoint;
   accessoryTransform?: AccessoryTransform;
   actions?: ObjectAction[];
@@ -125,6 +128,8 @@ export interface InventoryItem {
   modelType?: 'sofa' | 'table' | 'chair' | 'plant' | 'house' | 'custom_glb' | 'avatar' | 'acessorio';
   rawDimensions?: [number, number, number];
   isMissingAsset?: boolean;
+  // Specific placed object instance being published (disambiguates duplicates of the same asset)
+  sourceObjectId?: string;
 }
 
 export interface PlayableBoundary {
@@ -191,6 +196,7 @@ export interface SpotVisualConfig {
   arrowScale: number; // 0.5 to 2.5
   signalScale: number; // 0.5 to 2.5
   relativeSpotRadius?: number;
+  hideSpotNames?: boolean; // hide spot name labels (shown only on hover/selection)
 }
 
 // Social / Interactive Room Gizmo Modes (harmonized with Creator Mode)
@@ -222,6 +228,7 @@ export interface AvatarPose {
   isPublishedByCreator?: boolean;
   associatedAvatarIds?: string[];
   associatedAvatarNames?: string[];
+  access?: 'requires_avatar' | 'free';
 }
 
 export interface Spot {
@@ -355,7 +362,10 @@ export interface StoreAvatar {
   originalItemId?: string;
   isMissingAsset?: boolean;
   actions?: ObjectAction[];
+  poseIds?: string[]; // poses bundled with this avatar when published
 }
+
+export type PoseAccess = 'requires_avatar' | 'free';
 
 export interface AvatarPoseConfig {
   id: string;
@@ -369,6 +379,9 @@ export interface AvatarPoseConfig {
   isPublishedByCreator?: boolean;
   associatedAvatarIds?: string[];
   associatedAvatarNames?: string[];
+  // 'requires_avatar' (default when avatars are linked): only usable with the linked avatar owned.
+  // 'free': can be acquired on its own.
+  access?: PoseAccess;
   rarity?: 'COMUM' | 'RARO' | 'ÉLITE';
 }
 

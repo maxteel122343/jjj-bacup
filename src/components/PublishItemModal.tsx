@@ -46,6 +46,7 @@ interface PublishItemModalProps {
     publishMode: 'simples' | 'avancado';
     associatedAvatarIds?: string[];
     associatedAvatarNames?: string[];
+    poseAccess?: 'requires_avatar' | 'free';
     actions?: ObjectAction[];
     accessoryAttachment?: AccessoryAttachmentPoint;
     accessoryTransform?: AccessoryTransform;
@@ -66,6 +67,7 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
   const [title, setTitle] = useState('');
   const [objectType, setObjectType] = useState<StoreObjectType>('item');
   const [associatedAvatarIds, setAssociatedAvatarIds] = useState<string[]>([]);
+  const [poseAccess, setPoseAccess] = useState<'requires_avatar' | 'free'>('requires_avatar');
   const [price, setPrice] = useState(0);
   const [hashtags, setHashtags] = useState('#comunidade, #3d, #criador');
   const [rarity, setRarity] = useState<'COMUM' | 'RARO' | 'ÉLITE'>('RARO');
@@ -87,6 +89,7 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
       setThumbUrl(item.thumbUrl || '');
       setHasSaved(false);
       setAssociatedAvatarIds([]);
+      setPoseAccess('requires_avatar');
 
       // Auto-detect type
       const lower = (item.displayName || '').toLowerCase();
@@ -270,6 +273,7 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
         associatedAvatarNames:
           objectType === 'pose' && associatedNames.length > 0 ? associatedNames : undefined,
         actions: actions.length > 0 ? actions : undefined,
+        poseAccess: objectType === 'pose' || objectType === 'avatar' ? poseAccess : undefined,
         accessoryAttachment: objectType === 'acessorio' ? accessoryAttachment : undefined,
         accessoryTransform:
           objectType === 'acessorio'
@@ -588,6 +592,39 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* Acesso às poses */}
+          {(objectType === 'pose' || objectType === 'avatar') && (
+            <div className="p-3 rounded-xl bg-black/60 border border-[#d4af37]/40 space-y-2">
+              <label className="font-semibold text-xs text-[#ffd700]">
+                {objectType === 'avatar' ? 'Acesso às poses anexadas' : 'Acesso à pose'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  ['requires_avatar', '🔒 Só com o avatar'],
+                  ['free', '🔓 Sem restrição'],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPoseAccess(val)}
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                      poseAccess === val
+                        ? 'bg-[#d4af37]/25 border-[#ffd700] text-white'
+                        : 'bg-[#181920] border-white/10 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                {poseAccess === 'free'
+                  ? 'A pose pode ser adquirida separadamente, sem ter o avatar.'
+                  : 'A pose só pode ser usada por quem adquiriu o avatar.'}
+              </p>
+            </div>
+          )}
 
           {/* POSE vinculação */}
           {objectType === 'pose' && (

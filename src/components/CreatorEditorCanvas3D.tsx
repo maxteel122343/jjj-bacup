@@ -100,7 +100,7 @@ interface CreatorEditorCanvas3DProps {
   onAvatarManualMove?: () => void;
   customAvatarObjectId?: string | null;
   onSetCustomAvatarObjectId?: (id: string | null) => void;
-  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio') => void;
+  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio' | 'pose') => void;
   onDropItemOnScene?: (item: InventoryItem, coords: [number, number, number]) => void;
   onAddSpotAtObject?: (objectId: string) => void;
   surfaceSnapTargetObjectId?: string | null;
@@ -698,6 +698,16 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     scene.add(transformControls.getHelper());
     transformControlsRef.current = transformControls;
 
+    // YXZ order = yaw around world Y, then pitch. Keeps the world-Y ring from tilting the arrow
+    // and keeps pitch within ±90° so the arrow never snaps upright.
+    const getSpotYawPitchDeg = (obj: THREE.Object3D) => {
+      const e = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
+      return {
+        degY: Math.round(((THREE.MathUtils.radToDeg(e.y) % 360) + 360) % 360),
+        degX: Math.max(-90, Math.min(90, THREE.MathUtils.radToDeg(e.x))),
+      };
+    };
+
     let tcRafId: number | null = null;
     transformControls.addEventListener('dragging-changed', (event: any) => {
       isTransformDraggingRef.current = event.value;
@@ -745,9 +755,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
               }
               attached.position.copy(worldPos);
             }
-            const degY = Math.round(((THREE.MathUtils.radToDeg(attached.rotation.y) % 360) + 360) % 360);
-            const rawDegX = THREE.MathUtils.radToDeg(attached.rotation.x);
-            const degX = ((rawDegX + 180) % 360 + 360) % 360 - 180;
+            const { degY, degX } = getSpotYawPitchDeg(attached);
+
             onUpdateSpotRotationRef.current(selectedSpotIdRef.current, degY);
             onUpdateSpotRotationPitchRef.current?.(selectedSpotIdRef.current, degX);
           } else {
@@ -791,9 +800,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
               }
               attached.position.copy(worldPos);
             }
-            const degY = Math.round(((THREE.MathUtils.radToDeg(attached.rotation.y) % 360) + 360) % 360);
-            const rawDegX = THREE.MathUtils.radToDeg(attached.rotation.x);
-            const degX = ((rawDegX + 180) % 360 + 360) % 360 - 180;
+            const { degY, degX } = getSpotYawPitchDeg(attached);
+
             onUpdateSpotRotationRef.current(selectedSpotIdRef.current, degY);
             onUpdateSpotRotationPitchRef.current?.(selectedSpotIdRef.current, degX);
           } else {
@@ -809,9 +817,26 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     // 3D Anchor for Spot Gizmo (allows full 3D manipulation of spots in the scene)
     const spotGizmoAnchor = new THREE.Group();
     spotGizmoAnchor.name = 'spotGizmoAnchor';
+    spotGizmoAnchor.rotation.order = 'YXZ';
     spotGizmoAnchor.visible = false;
     scene.add(spotGizmoAnchor);
     spotGizmoAnchorRef.current = spotGizmoAnchor;
+
+    // Heading arrow: shows the facing direction (-Z) and follows both yaw and pitch rotation
+    const headingArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(0, 0, 0),
+      0.9,
+      0x22d3ee,
+      0.28,
+      0.18
+    );
+    headingArrow.renderOrder = 9990;
+    [headingArrow.line.material, headingArrow.cone.material].forEach((m) => {
+      (m as THREE.Material).depthTest = false;
+      (m as THREE.Material).transparent = true;
+    });
+    spotGizmoAnchor.add(headingArrow);
 
     // Avatar mesh for visitor mode
     const avatarGroup = createSimpleAvatarMesh();
@@ -1880,8 +1905,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       if (isPanningRef.current && cameraRef.current) {
         const cam = cameraRef.current;
         const vFovRad = (cam.fov * Math.PI) / 180;
-        const visibleHeightAtDist = 2 * Math.tan(vFovRad / 2) * Math.max(0.001, cameraAngleRef.current.distance);
-        const factor = (visibleHeightAtDist / Math.max(100, container.clientHeight)) * 1.6;
+        const visibleHeightAtDist = 2 * Math.tan(vFovRad / 2) * Math.max(0.5, cameraAngleRef.current.distance);
+        const factor = visibleHeightAtDist / Math.max(100, container.clientHeight);
 
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
         const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
@@ -2066,11 +2091,18 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       e.preventDefault();
       // Smooth exponential zoom proportional to distance
       const delta = Math.max(-150, Math.min(150, e.deltaY));
-      const zoomFactor = Math.exp(delta * 0.0022);
-      cameraAngleRef.current.distance = Math.max(
-        0.001,
-        Math.min(3000.0, cameraAngleRef.current.distance * zoomFactor)
-      );
+      const zoomFactor = Math.exp(delta * 0.0018);
+      const minDistance = 0.35;
+      const next = cameraAngleRef.current.distance * zoomFactor;
+      // Same behaviour as the lounge: past the minimum distance, dolly the target forward
+      if (delta < 0 && next < minDistance && cameraRef.current) {
+        const dir = new THREE.Vector3();
+        cameraRef.current.getWorldDirection(dir);
+        cameraTargetRef.current.addScaledVector(dir, minDistance - next + 0.04);
+        cameraAngleRef.current.distance = minDistance;
+      } else {
+        cameraAngleRef.current.distance = Math.max(minDistance, Math.min(30.0, next));
+      }
     };
 
     // Keyboard shortcuts for Blender-style tools: G (move), R (rotate), S (scale), E (elevate), Delete
@@ -2652,19 +2684,19 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     if (selectedSpotId && !selectedObjectId) {
       if (spotGizmoAnchorRef.current) spotGizmoAnchorRef.current.visible = true;
       if (activeGizmoMode === 'rodar') {
-        tc.size = 0.32; // Exact diameter matching the 0.3m yellow disc so green ring sits tight on the yellow areola!
+        tc.size = 1.0; // Large rings so the rotation handles are easy to grab
         tc.setMode('rotate');
         tc.showX = true; // Rotacionar para cima e para baixo (eixo X / Pitch)
         tc.showY = true; // Rotacionar para os lados (eixo Y / Yaw)
         tc.showZ = false;
       } else if (activeGizmoMode === 'elevar') {
-        tc.size = 0.65;
+        tc.size = 1.3;
         tc.setMode('translate');
         tc.showX = false;
         tc.showY = true;
         tc.showZ = false;
       } else {
-        tc.size = 0.65;
+        tc.size = 1.3;
         tc.setMode('translate');
         tc.showX = true;
         tc.showY = true;
@@ -2733,6 +2765,61 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       }
     }
   }, [selectedSpotId, selectedObjectId, spots, lockSpots, showSpots, isAvatarMode]);
+
+  // 4c. Translucent yellow disc marking where each spot is positioned
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !showSpots) return;
+
+    const radius = 0.3 * (spotVisualConfig?.signalScale || 1.0);
+    const group = new THREE.Group();
+    group.name = 'spotDiscsGroup';
+    const discGeo = new THREE.CircleGeometry(radius, 40);
+    const ringGeo = new THREE.RingGeometry(radius * 0.92, radius, 40);
+
+    spots.forEach((spot) => {
+      let pos = new THREE.Vector3(...spot.position);
+      if (spot.parentObjectId && spot.relativePosition && meshMapRef.current.has(spot.parentObjectId)) {
+        pos = meshMapRef.current.get(spot.parentObjectId)!.localToWorld(new THREE.Vector3(...spot.relativePosition));
+      }
+      const isSel = spot.id === selectedSpotId;
+      const disc = new THREE.Mesh(
+        discGeo,
+        new THREE.MeshBasicMaterial({
+          color: 0xffd700,
+          transparent: true,
+          opacity: isSel ? 0.4 : 0.25,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      const ring = new THREE.Mesh(
+        ringGeo,
+        new THREE.MeshBasicMaterial({
+          color: 0xffd700,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+      );
+      [disc, ring].forEach((m) => {
+        m.rotation.x = -Math.PI / 2;
+        m.position.copy(pos);
+        m.position.y += 0.012;
+        m.renderOrder = 5;
+        group.add(m);
+      });
+    });
+
+    scene.add(group);
+    return () => {
+      scene.remove(group);
+      discGeo.dispose();
+      ringGeo.dispose();
+      group.children.forEach((c) => ((c as THREE.Mesh).material as THREE.Material).dispose());
+    };
+  }, [spots, showSpots, selectedSpotId, spotVisualConfig?.signalScale, placedObjects]);
 
   // 5. Update Boundary Box and Metric Reference visibility
   useEffect(() => {
@@ -2885,6 +2972,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
 
     onSelectSpot(spotId);
     onSelectObject(null);
+    // Free-drag only in move mode; rotate/elevate/scale modes just select the spot
+    if (activeGizmoModeRef.current !== 'mover') return;
     isDraggingSpotRef.current = true;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -3464,7 +3553,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                 key={spot.id}
                 style={{ left: `${screenX}px`, top: `${screenY}px`, zIndex: effectiveZIndex }}
                 className={`absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group ${
-                  lockSpots ? 'pointer-events-none opacity-60' : 'pointer-events-auto cursor-pointer'
+                  lockSpots || (isSelected && !isAvatarMode)
+                    ? `pointer-events-none ${lockSpots ? 'opacity-60' : ''}`
+                    : 'pointer-events-auto cursor-pointer'
                 }`}
                 onClick={(e) => {
                   if (lockSpots) return;
@@ -3496,6 +3587,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                 {/* 2. Spot Label & Status Badges */}
                 <div className="flex items-center gap-1 mb-1 flex-wrap justify-center pointer-events-none">
                   <span className={`text-[10px] font-medium tracking-wider select-none px-1.5 py-0.5 rounded backdrop-blur-sm ${
+                    spotVisualConfig?.hideSpotNames && !isSelected ? 'hidden group-hover:inline' : ''
+                  } ${
                     isSelected
                       ? 'text-white bg-cyan-950/95 border border-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.65)] ring-1 ring-cyan-300/60'
                       : isWhitePulse

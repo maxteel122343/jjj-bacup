@@ -15,26 +15,50 @@ interface GlassChatProps {
   roomName: string;
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
+  // Mobile dock mode: always expanded, closed by the parent dock
+  embedded?: boolean;
+  onClose?: () => void;
 }
 
 export const GlassChat: React.FC<GlassChatProps> = ({
   roomName,
   messages,
   onSendMessage,
+  embedded = false,
+  onClose,
 }) => {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Minimization state: starts minimized on small mobile screens to keep the 3D room clean!
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+  const [isMinimizedState, setIsMinimized] = useState<boolean>(() => {
     return typeof window !== 'undefined' && window.innerWidth < 640;
   });
+  const isMinimized = embedded ? false : isMinimizedState;
 
   // Free dragging position on screen
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ mouseX: 0, mouseY: 0, startX: 0, startY: 0 });
   const chatCardRef = useRef<HTMLDivElement>(null);
+
+  // iOS Safari doesn't resize the layout on keyboard open; track the visual viewport instead
+  const [kbOffset, setKbOffset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const off = window.innerHeight - vv.height - vv.offsetTop;
+      setKbOffset(off > 80 ? off : 0);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,10 +194,18 @@ export const GlassChat: React.FC<GlassChatProps> = ({
     <div
       ref={chatCardRef}
       id="glass-chat-panel"
-      style={position ? { left: `${position.x}px`, top: `${position.y}px`, position: 'fixed' } : undefined}
       className={`${
-        position ? 'z-40' : 'fixed top-20 right-3 sm:right-6 z-40'
-      } w-[calc(100vw-24px)] sm:w-80 bg-[#16171acc]/90 backdrop-blur-2xl rounded-2xl border border-white/15 p-3.5 shadow-2xl flex flex-col justify-between text-white font-sans max-h-[55vh] sm:max-h-[480px] pointer-events-auto select-none transition-shadow`}
+        position ? 'z-40' : `fixed z-40 ${embedded ? 'bottom-16' : 'bottom-2'} inset-x-2 sm:inset-x-auto sm:bottom-auto sm:top-20 sm:right-6`
+      } sm:w-80 bg-[#16171acc]/95 backdrop-blur-2xl rounded-2xl border border-white/15 p-2.5 sm:p-3.5 shadow-2xl flex flex-col justify-between text-white font-sans max-h-[42dvh] sm:max-h-[480px] pointer-events-auto select-none transition-shadow ${
+        position ? 'w-[min(calc(100vw-24px),20rem)]' : ''
+      }`}
+      style={
+        position
+          ? { left: `${position.x}px`, top: `${position.y}px`, position: 'fixed' }
+          : kbOffset > 0
+          ? { bottom: kbOffset + 8 }
+          : undefined
+      }
     >
       {/* Draggable Chat Header */}
       <div
@@ -204,7 +236,7 @@ export const GlassChat: React.FC<GlassChatProps> = ({
 
           <button
             type="button"
-            onClick={() => setIsMinimized(true)}
+            onClick={() => (embedded && onClose ? onClose() : setIsMinimized(true))}
             className="p-1 rounded text-zinc-400 hover:text-[#ffd700] hover:bg-white/10 transition-colors cursor-pointer"
             title="Minimizar chat (deixar tela limpa)"
           >
@@ -214,7 +246,7 @@ export const GlassChat: React.FC<GlassChatProps> = ({
       </div>
 
       {/* Messages Feed */}
-      <div className="flex-1 overflow-y-auto py-2.5 space-y-3 pr-1 scrollbar-thin scrollbar-thumb-zinc-700 min-h-[120px]">
+      <div className="flex-1 overflow-y-auto py-2 space-y-3 pr-1 scrollbar-thin scrollbar-thumb-zinc-700 min-h-[60px] sm:min-h-[120px]">
         {messages.map((msg) => (
           <div key={msg.id} className="flex items-start gap-2.5 group">
             <img
@@ -250,7 +282,7 @@ export const GlassChat: React.FC<GlassChatProps> = ({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Digite uma mensagem..."
-            className="w-full bg-transparent text-xs text-white placeholder:text-zinc-500 outline-none pr-12"
+            className="w-full bg-transparent text-base sm:text-xs text-white placeholder:text-zinc-500 outline-none pr-12"
           />
           <div className="absolute right-1.5 flex items-center gap-0.5">
             <button

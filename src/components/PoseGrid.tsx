@@ -97,7 +97,7 @@ export const PoseGrid: React.FC<PoseGridProps> = ({
                 const poseThumb = pose.thumbnailUrl || defaultAvatarThumb;
 
                 // Check association restriction:
-                const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0);
+                const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free');
                 const isAvatarCompatible = !isRestricted || pose.associatedAvatarIds!.some((id) =>
                   ownedAvatarIds.includes(id) || activeUserAvatar?.id === id
                 );
@@ -207,7 +207,7 @@ export const PoseGrid: React.FC<PoseGridProps> = ({
                 const isSelected = pose.id === selectedPoseId;
                 const poseThumb = pose.thumbnailUrl || defaultAvatarThumb;
 
-                const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0);
+                const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free');
                 const isAvatarCompatible = !isRestricted || pose.associatedAvatarIds!.some((id) =>
                   ownedAvatarIds.includes(id) || activeUserAvatar?.id === id
                 );

@@ -33,6 +33,7 @@ import {
   Layers,
   Edit3,
   Zap,
+  Info,
 } from 'lucide-react';
 import {
   ActionSpeedKeyframe,
@@ -64,7 +65,10 @@ interface CreatorSidebarProps {
   activeGizmoMode?: GizmoEditMode;
   onSelectObjectId?: (id: string | null) => void;
   onRemoveObject?: (id: string) => void;
-  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio') => void;
+  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio' | 'pose') => void;
+  storeAvatars?: { id: string; name: string; thumb: string }[];
+  onTogglePoseAvatarAttachment?: (poseObjectId: string, avatarId: string) => void;
+  onPublishObject?: (objectId: string) => void;
   onUpdateObjectActions?: (objectId: string, actions: ObjectAction[]) => void;
   onToggleTestObjectAction?: (objectId: string, actionId: string | null) => void;
   onPreviewObjectAction?: (objectId: string, motion: SpotMotionConfig | null) => void;
@@ -81,6 +85,7 @@ interface CreatorSidebarProps {
   onOpenUploadModal: () => void;
   onInsertAssetToScene: (asset: InventoryItem) => void;
   onAddSpot: (type: SpotType, name: string) => void;
+  onRenameSpot?: (id: string, name: string) => void;
   onRemoveSpot: (spotId: string) => void;
   onClearAllSpots?: () => void;
   onRemoveOverlappingSpots?: () => void;
@@ -136,6 +141,9 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   onSelectObjectId,
   onRemoveObject,
   onUpdateObjectType,
+  storeAvatars: sidebarStoreAvatars = [],
+  onTogglePoseAvatarAttachment,
+  onPublishObject,
   onUpdateObjectActions,
   onToggleTestObjectAction,
   onPreviewObjectAction,
@@ -151,7 +159,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   onOpenUploadModal,
   onInsertAssetToScene,
   onAddSpot,
-  onRemoveSpot,
+  onRenameSpot,  onRemoveSpot,
   onClearAllSpots,
   onRemoveOverlappingSpots,
   onSelectSpot,
@@ -193,10 +201,35 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   avatarCurrentSpotId = null,
 }) => {
   const [activeTab, setActiveTab] = useState<'spots' | 'objects' | 'actions' | 'inventory'>('spots');
+  // Height of the tab bar; dragging the handle below it gives more room to the tab content
+  const [tabBarHeight, setTabBarHeight] = useState<number | null>(null);
+  const tabBarRef = React.useRef<HTMLDivElement | null>(null);
+
+  const startTabBarResize = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const getY = (ev: MouseEvent | TouchEvent) =>
+      'touches' in ev ? ev.touches[0].clientY : (ev as MouseEvent).clientY;
+    const startY = getY(e.nativeEvent as MouseEvent | TouchEvent);
+    const startH = tabBarRef.current?.getBoundingClientRect().height ?? 180;
+    const onMove = (ev: MouseEvent | TouchEvent) => {
+      const next = startH + (getY(ev) - startY);
+      setTabBarHeight(Math.max(40, Math.min(260, next)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onUp);
+  };
   const [isAddingSpot, setIsAddingSpot] = useState(false);
   const [expandedSpotConfigId, setExpandedSpotConfigId] = useState<string | null>(null);
-  const [newSpotType, setNewSpotType] = useState<SpotType>('sentar');
-  const [newSpotName, setNewSpotName] = useState('');
+  const [editingSpotId, setEditingSpotId] = useState<string | null>(null);
+  const [editingSpotName, setEditingSpotName] = useState('');
 
   // Inventory Selection & Batch Deletion States
   const [selectedInventoryIds, setSelectedInventoryIds] = useState<string[]>([]);
@@ -277,19 +310,17 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   // Delete inventory item confirmation state
   const [itemToDelete, setItemToDelete] = useState<InventoryItem | null>(null);
 
-  const handleCreateSpot = (e: React.FormEvent) => {
-    e.preventDefault();
-    const finalName =
-      newSpotName.trim() ||
-      (newSpotType === 'sentar'
-        ? `Sofa ${spots.filter((s) => s.type === 'sentar').length + 1}`
-        : newSpotType === 'pe'
-        ? `Pé ${spots.filter((s) => s.type === 'pe').length + 1}`
-        : `Deitar ${spots.filter((s) => s.type === 'deitar').length + 1}`);
+  const handleCreateSpot = () => {
+    const nextIndex = spots.length + 1;
+    onAddSpot('sentar', `Spot ${nextIndex}`);
+  };
 
-    onAddSpot(newSpotType, finalName);
-    setNewSpotName('');
-    setIsAddingSpot(false);
+  const commitSpotRename = () => {
+    if (editingSpotId && editingSpotName.trim()) {
+      onRenameSpot?.(editingSpotId, editingSpotName.trim());
+    }
+    setEditingSpotId(null);
+    setEditingSpotName('');
   };
 
   // If sidebar is collapsed, render minimal vertical strip
@@ -372,7 +403,11 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
       )}
 
       {/* Top Tab Bar: [📍 SPOTS] | [🪑 OBJETOS (n)] | [⚡ ACTIONS] | [📦 ITENS (n)] */}
-      <div className="flex flex-col gap-1 border-b border-white/10 bg-[#0e0f13] px-2 py-2">
+      <div
+        ref={tabBarRef}
+        style={tabBarHeight !== null ? { height: tabBarHeight } : undefined}
+        className="flex flex-col gap-1 bg-[#0e0f13] px-2 py-2 overflow-y-auto shrink-0 custom-scrollbar"
+      >
         <button
           type="button"
           onClick={() => setActiveTab('spots')}
@@ -428,6 +463,17 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
           <FolderArchive className="w-4 h-4 flex-shrink-0" />
           <span>Itens</span>
         </button>
+      </div>
+
+      {/* Drag handle: pull up/down to shrink or grow the tab bar */}
+      <div
+        onMouseDown={startTabBarResize}
+        onTouchStart={startTabBarResize}
+        onDoubleClick={() => setTabBarHeight(null)}
+        className="h-2 shrink-0 cursor-row-resize border-y border-white/10 bg-[#0e0f13] hover:bg-[#d4af37]/30 flex items-center justify-center group"
+        title="Arraste para cima/baixo para redimensionar (duplo clique restaura)"
+      >
+        <div className="w-10 h-0.5 rounded-full bg-[#d4af37]/50 group-hover:bg-[#ffd700]" />
       </div>
 
       {/* Tab 1: SPOTS DA ROOM */}
@@ -548,7 +594,26 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         )}
                       </div>
                       <div className="min-w-0">
-                        <span className="text-xs font-semibold truncate block">{spot.name}</span>
+                        {editingSpotId === spot.id ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editingSpotName}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setEditingSpotName(e.target.value)}
+                            onBlur={commitSpotRename}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitSpotRename();
+                              if (e.key === 'Escape') {
+                                setEditingSpotId(null);
+                                setEditingSpotName('');
+                              }
+                            }}
+                            className="w-full bg-[#16181e] border border-[#d4af37]/60 rounded px-1.5 py-0.5 text-xs text-[#e8d5b5] outline-none"
+                          />
+                        ) : (
+                          <span className="text-xs font-semibold truncate block">{spot.name}</span>
+                        )}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {isSelected && (
                             <span className="text-[9px] leading-4 px-1.5 rounded bg-[#ffd700] text-[#11151d] font-bold uppercase tracking-wide">
@@ -571,10 +636,21 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border border-[#d4af37]/30 text-[#d4af37]/80">
-                        {spot.type === 'sentar' ? 'SENTAR' : spot.type === 'deitar' ? 'DEITAR' : 'PE'}
-                      </span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {onRenameSpot && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSpotId(spot.id);
+                            setEditingSpotName(spot.name);
+                          }}
+                          className="p-1 rounded text-[#d4af37]/60 hover:text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                          title="Renomear spot"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -735,8 +811,11 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                           <div className="flex items-center gap-1.5">
                             <Activity className="w-3.5 h-3.5 text-[#ffd700]" />
                             <span className="text-xs font-bold text-[#ffd700]">Motion Spot</span>
-                            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-400/40 px-1.5 py-0.5 rounded font-bold">
-                              👻 Fantasma
+                            <span
+                              className="text-cyan-300 hover:text-cyan-200 cursor-help"
+                              title="Spot Fantasma: o spot original fica fixo no centro da base, enquanto o Spot Fantasma se desloca na direção configurada, em tempo real."
+                            >
+                              <Info className="w-3.5 h-3.5" />
                             </span>
                           </div>
                           <button
@@ -760,25 +839,15 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                                 onUpdateSpotMotion?.(spot.id, newMotion);
                               }
                             }}
-                            className={`px-3 py-1 rounded-lg text-xs font-black border-2 transition-all cursor-pointer shadow-md ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all cursor-pointer ${
                               isMotionActive
-                                ? 'bg-cyan-400 text-black border-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.6)]'
+                                ? 'bg-cyan-400 text-black border-cyan-200 shadow-[0_0_10px_rgba(6,182,212,0.5)]'
                                 : 'bg-[#20222a] text-zinc-200 border-zinc-500 hover:text-white hover:border-zinc-300'
                             }`}
+                            title={isMotionActive ? 'Motion ligado: clique para parar e desativar' : 'Ligar motion do spot'}
                           >
-                            {isMotionActive ? '✓ LIGADO (PARAR / DESATIVAR)' : 'LIGAR MOTION'}
+                            {isMotionActive ? '✓ LIGADO' : 'LIGAR'}
                           </button>
-                        </div>
-
-                        {/* Spot Fantasma Concept Explanation Banner */}
-                        <div className="p-2 rounded-lg bg-cyan-950/70 border border-cyan-400/40 text-cyan-200 space-y-1">
-                          <div className="flex items-center gap-1.5 font-bold text-xs text-cyan-300">
-                            <span className="text-sm">👻</span>
-                            <span>Spot Fantasma em Movimento</span>
-                          </div>
-                          <p className="text-[10px] text-cyan-100/90 leading-relaxed">
-                            O spot original fica <strong>fixo no centro da base</strong>, enquanto o <strong>Spot Fantasma</strong> se desloca na direção configurada a partir dele em tempo real!
-                          </p>
                         </div>
 
                         {isMotionActive && spot.motion && (
@@ -1256,65 +1325,15 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
               );
             })}
 
-            {/* Quick Add Form or Trigger Button */}
-            {isAddingSpot ? (
-              <form
-                onSubmit={handleCreateSpot}
-                className="mt-3 p-3 rounded-lg border border-[#d4af37]/50 bg-black/60 space-y-2.5 animate-fade-in"
-              >
-                <div className="flex items-center justify-between text-xs text-[#d4af37]">
-                  <span className="font-semibold">Novo Spot</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingSpot(false)}
-                    className="text-[#d4af37]/60 hover:text-[#d4af37]"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(['pe', 'sentar', 'deitar'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setNewSpotType(t)}
-                      className={`py-1 text-[10px] font-semibold rounded border transition-colors cursor-pointer ${
-                        newSpotType === t
-                          ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                          : 'border-[#d4af37]/40 text-[#e8d5b5]/80 hover:border-[#d4af37]'
-                      }`}
-                    >
-                      {t.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-
-                <input
-                  type="text"
-                  placeholder="Nome do spot (opcional)"
-                  value={newSpotName}
-                  onChange={(e) => setNewSpotName(e.target.value)}
-                  className="w-full bg-[#16181e] border border-[#d4af37]/40 rounded px-2.5 py-1.5 text-xs text-[#e8d5b5] placeholder:text-[#e8d5b5]/30 outline-none"
-                />
-
-                <button
-                  type="submit"
-                  className="w-full py-1.5 rounded bg-[#d4af37] text-black text-xs font-semibold tracking-wide hover:bg-[#e2bd44] cursor-pointer"
-                >
-                  Salvar Spot
-                </button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsAddingSpot(true)}
-                className="w-full mt-3 py-2 rounded-lg border border-[#d4af37]/40 hover:border-[#d4af37] bg-[#d4af37]/5 hover:bg-[#d4af37]/15 text-[#d4af37] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar spot</span>
-              </button>
-            )}
+            {/* Adds a spot instantly; rename later via the pencil icon */}
+            <button
+              type="button"
+              onClick={handleCreateSpot}
+              className="w-full mt-3 py-2 rounded-lg border border-[#d4af37]/40 hover:border-[#d4af37] bg-[#d4af37]/5 hover:bg-[#d4af37]/15 text-[#d4af37] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Adicionar spot</span>
+            </button>
           </div>
 
           {/* Footer note matching screenshot */}
@@ -1602,6 +1621,21 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                           </button>
                         )}
 
+                        {onPublishObject && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPublishObject(obj.id);
+                            }}
+                            className="p-1.5 px-2 rounded bg-emerald-950/70 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-400/50 transition-all cursor-pointer text-[11px] font-bold flex items-center gap-1 shadow-sm active:scale-95"
+                            title={`Publicar ESTE objeto ("${obj.name}") na loja com as configurações dele na cena (actions, poses anexadas, etc.)`}
+                          >
+                            <Upload className="w-3 h-3 flex-shrink-0" />
+                            <span>Publicar</span>
+                          </button>
+                        )}
+
                         {/* Avatar test toggle */}
                         <div className="flex items-center">
                           <button
@@ -1641,11 +1675,12 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         <span className="text-[11px] uppercase tracking-wider text-[#d4af37]/80 mr-1">
                           Tipo:
                         </span>
-                        {(['movel', 'objeto', 'avatar', 'acessorio'] as const).map((t) => {
+                        {(['movel', 'objeto', 'avatar', 'acessorio', 'pose'] as const).map((t) => {
                           const isActive =
                             (t === 'avatar' && (obj.type === 'avatar' || obj.isAvatar)) ||
                             (t === 'acessorio' && (obj.type === 'acessorio' || obj.isAccessory)) ||
-                            (t !== 'avatar' && t !== 'acessorio' && obj.type === t && !obj.isAvatar && !obj.isAccessory);
+                            (t === 'pose' && (obj.type === 'pose' || obj.isPose)) ||
+                            (t !== 'avatar' && t !== 'acessorio' && t !== 'pose' && obj.type === t && !obj.isAvatar && !obj.isAccessory && !obj.isPose);
                           return (
                             <button
                               key={t}
@@ -1667,12 +1702,55 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                                   : 'bg-black/40 text-[#e8d5b5]/60 hover:text-white border border-[#d4af37]/20'
                               }`}
                             >
-                              {t === 'avatar' ? '👤 Avatar' : t === 'acessorio' ? '👑 Acessório' : t}
+                              {t === 'avatar' ? '👤 Avatar' : t === 'acessorio' ? '👑 Acessório' : t === 'pose' ? '🧍 Pose' : t}
                             </button>
                           );
                         })}
                       </div>
                     )}
+
+                    {/* Attach pose to avatars */}
+                    {(obj.type === 'pose' || obj.isPose) && onTogglePoseAvatarAttachment && (() => {
+                      const editorAvatars = placedObjects.filter(
+                        (o) => o.id !== obj.id && (o.type === 'avatar' || o.isAvatar)
+                      );
+                      const candidates = [
+                        ...editorAvatars.map((o) => ({ id: o.id, name: o.name, thumb: '', source: 'Editor' })),
+                        ...sidebarStoreAvatars.map((a) => ({ id: a.id, name: a.name, thumb: a.thumb, source: 'Loja' })),
+                      ];
+                      return (
+                        <div className="col-span-2 border-t border-[#d4af37]/20 pt-1 space-y-1" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-[11px] uppercase tracking-wider text-[#d4af37]/80">
+                            Anexar a avatar ({obj.attachedAvatarIds?.length || 0})
+                          </span>
+                          {candidates.length === 0 ? (
+                            <p className="text-[10px] text-zinc-400">Nenhum avatar disponível. Defina um objeto como Avatar.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {candidates.map((c) => {
+                                const attached = obj.attachedAvatarIds?.includes(c.id);
+                                return (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => onTogglePoseAvatarAttachment(obj.id, c.id)}
+                                    title={`${attached ? 'Desanexar de' : 'Anexar a'} ${c.name} (${c.source})`}
+                                    className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                                      attached
+                                        ? 'bg-[#ffd700] text-black border-[#ffd700]'
+                                        : 'bg-black/40 text-[#e8d5b5]/70 border-[#d4af37]/30 hover:text-white'
+                                    }`}
+                                  >
+                                    {attached ? <Check className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                                    <span className="max-w-[90px] truncate">{c.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Action Button & Indicator on each placed object card */}
                     <div className="col-span-2 flex items-center justify-between border-t border-[#d4af37]/20 pt-1 text-xs">
@@ -2382,62 +2460,56 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
       {activeTab === 'inventory' && (
         <div className="flex-1 flex flex-col justify-between overflow-hidden p-3.5">
           {/* Top Meus Itens Publicados prominent banner/button */}
+          {/* Compact icon toolbar */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
           {onOpenPublicationsModal && (
             <button
               type="button"
               onClick={onOpenPublicationsModal}
-              className="w-full py-2.5 px-3 rounded-lg border-2 border-[#ffd700] hover:border-amber-300 bg-gradient-to-r from-amber-600/30 via-yellow-500/30 to-[#ffd700]/30 hover:from-amber-600/40 hover:to-[#ffd700]/40 text-xs font-black text-[#ffd700] flex items-center justify-between gap-2 cursor-pointer transition-all shadow-md mb-2.5"
-              title="Ver todas as salas, avatares, acessórios e itens publicados e editar novamente"
+              className="relative w-8 h-8 rounded-lg border border-[#ffd700] hover:border-amber-300 bg-gradient-to-r from-amber-600/30 to-[#ffd700]/30 hover:from-amber-600/40 hover:to-[#ffd700]/40 text-[#ffd700] flex items-center justify-center cursor-pointer transition-all"
+              title="Minhas Publicações na Vitrine"
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <Layers className="w-4 h-4 text-[#ffd700] flex-shrink-0" />
-                <span className="truncate">🌟 Minhas Publicações na Vitrine</span>
-              </div>
+              <Layers className="w-4 h-4" />
               {publishedCount !== undefined && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-[#ffd700] text-black font-extrabold flex-shrink-0">
+                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] leading-4 text-center bg-[#ffd700] text-black font-extrabold">
                   {publishedCount}
                 </span>
               )}
             </button>
           )}
 
-          {/* Top project save/restore action */}
           {onOpenProjectModal && (
-            <div className="flex items-center gap-2 mb-2.5">
+            <>
               <button
                 type="button"
                 onClick={() => onOpenProjectModal('export')}
-                className="flex-1 py-2 px-3 rounded-lg border border-[#ffd700]/70 hover:border-[#ffd700] bg-gradient-to-r from-[#d4af37]/25 to-[#ffd700]/25 hover:from-[#d4af37]/35 hover:to-[#ffd700]/35 text-xs font-extrabold text-[#ffd700] flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
+                className="w-8 h-8 rounded-lg border border-[#ffd700]/70 hover:border-[#ffd700] bg-[#d4af37]/20 hover:bg-[#d4af37]/35 text-[#ffd700] flex items-center justify-center cursor-pointer transition-all"
                 title="Salvar projeto em arquivo"
               >
-                <Save className="w-3.5 h-3.5" />
-                <span>Salvar</span>
+                <Save className="w-4 h-4" />
               </button>
               <button
                 type="button"
                 onClick={() => onOpenProjectModal('import')}
-                className="flex-1 py-2 px-3 rounded-lg border border-[#d4af37]/50 hover:border-[#ffd700] bg-black/40 hover:bg-[#d4af37]/15 text-xs font-semibold text-[#e8d5b5] hover:text-[#ffd700] flex items-center justify-center gap-2 cursor-pointer transition-all"
+                className="w-8 h-8 rounded-lg border border-[#d4af37]/50 hover:border-[#ffd700] bg-black/40 hover:bg-[#d4af37]/15 text-[#e8d5b5] hover:text-[#ffd700] flex items-center justify-center cursor-pointer transition-all"
                 title="Restaurar projeto de um arquivo salvo"
               >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Restaurar</span>
+                <Download className="w-4 h-4" />
               </button>
-            </div>
+            </>
           )}
 
-          {/* Top upload button */}
           <button
             type="button"
             onClick={onOpenUploadModal}
-            className="w-full py-2.5 px-3 rounded-lg border border-[#d4af37] hover:border-[#ffd700] bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-xs font-semibold text-[#ffd700] flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm mb-2"
+            className="w-8 h-8 rounded-lg border border-[#d4af37] hover:border-[#ffd700] bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#ffd700] flex items-center justify-center cursor-pointer transition-all"
+            title="Enviar arquivo (GLB)"
           >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Enviar arquivo (GLB)</span>
+            <Upload className="w-4 h-4" />
           </button>
 
-          {/* Batch Actions: Limpar Todos & Excluir Selecionados */}
           {inventory.length > 0 && (
-            <div className="flex items-center gap-1.5 mb-2.5">
+            <>
               <button
                 type="button"
                 onClick={() => {
@@ -2447,40 +2519,34 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                     setSelectedInventoryIds(inventory.map((i) => i.id));
                   }
                 }}
-                className="py-1 px-2 rounded-lg bg-black/60 border border-[#d4af37]/40 text-[10px] text-zinc-300 hover:text-white cursor-pointer transition-colors"
-                title="Selecionar todos os arquivos"
+                className="w-8 h-8 rounded-lg bg-black/60 border border-[#d4af37]/40 text-zinc-300 hover:text-white flex items-center justify-center cursor-pointer transition-colors"
+                title={selectedInventoryIds.length === inventory.length ? 'Desmarcar todos' : 'Selecionar todos'}
               >
-                {selectedInventoryIds.length === inventory.length ? 'Desmarcar' : 'Selecionar Todos'}
+                <Check className="w-4 h-4" />
               </button>
 
               {selectedInventoryIds.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowDeleteSelectedModal(true)}
-                  className="flex-1 py-1 px-2 rounded-lg bg-red-950/70 border border-red-500/60 hover:bg-red-900/80 text-red-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                  className="h-8 px-2 rounded-lg bg-red-950/70 border border-red-500/60 hover:bg-red-900/80 text-red-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                   title="Excluir apenas os arquivos selecionados"
                 >
-                  <Trash2 className="w-3 h-3 text-red-400" />
-                  <span>Excluir ({selectedInventoryIds.length})</span>
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>{selectedInventoryIds.length}</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => setShowClearAllModal(true)}
-                className="py-1 px-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500/60 text-red-300 text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                className="w-8 h-8 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500/60 text-red-300 flex items-center justify-center cursor-pointer transition-colors"
                 title="Limpar todos os arquivos do inventário"
               >
-                <Trash2 className="w-3 h-3" />
-                <span>Limpar Todos</span>
+                <Trash2 className="w-4 h-4" />
               </button>
-            </div>
+            </>
           )}
-
-          {/* Drag & Drop Guidance Banner */}
-          <div className="p-2 mb-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 text-[10px] text-[#ffd700] flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-[#ffd700]" />
-            <span>Dica: Arraste qualquer item diretamente para o chão da maquete 3D!</span>
           </div>
 
           {/* Insertion Cursor Notification Banner */}

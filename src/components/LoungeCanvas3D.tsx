@@ -1190,10 +1190,18 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       e.preventDefault();
       const delta = Math.max(-150, Math.min(150, e.deltaY));
       const zoomFactor = Math.exp(delta * 0.0018);
-      cameraAnglesRef.current.radius = Math.max(
-        0.35,
-        Math.min(30.0, cameraAnglesRef.current.radius * zoomFactor)
-      );
+      const minRadius = 0.35;
+      const current = cameraAnglesRef.current.radius;
+      const next = current * zoomFactor;
+      // At minimum radius, keep zooming by moving the orbit target forward (dolly) instead of stalling
+      if (delta < 0 && next < minRadius && cameraRef.current) {
+        const dir = new THREE.Vector3();
+        cameraRef.current.getWorldDirection(dir);
+        cameraTargetRef.current.addScaledVector(dir, (minRadius - next) + 0.04);
+        cameraAnglesRef.current.radius = minRadius;
+      } else {
+        cameraAnglesRef.current.radius = Math.max(minRadius, Math.min(30.0, next));
+      }
     };
 
     // Keyboard arrow keys navigation to move scenario / orbit room

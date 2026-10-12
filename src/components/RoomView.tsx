@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, ChevronDown, LogOut, ArrowDown, Sparkles, X, Plus, GripVertical, Check, Heart } from 'lucide-react';
+import { Box, ChevronDown, LogOut, ArrowDown, Sparkles, X, Plus, GripVertical, Check, Heart, MessageSquare, Package, Move3d } from 'lucide-react';
 import {
   RoomData,
   AvatarPose,
@@ -14,6 +14,7 @@ import {
   SpotVisualConfig,
   PlacedObject,
   RoomAccessSlot,
+  ObjectAction,
 } from '../types';
 import { INITIAL_POSES, INITIAL_SPOTS, INITIAL_CHAT } from '../data/initialData';
 import { LoungeCanvas3D } from './LoungeCanvas3D';
@@ -73,14 +74,6 @@ export const RoomView: React.FC<RoomViewProps> = ({
   useEffect(() => {
     setActiveAvatarActionId(null);
   }, [liveAvatar?.id]);
-
-  useEffect(() => {
-    if (!activeAvatarActionId) return;
-    const actionStillExists = liveAvatar?.actions?.some((action) => action.id === activeAvatarActionId);
-    if (!actionStillExists) {
-      setActiveAvatarActionId(null);
-    }
-  }, [liveAvatar, activeAvatarActionId]);
 
   const [remotePlayers, setRemotePlayers] = useState<any[]>([]);
   const roomChannelRef = React.useRef<any>(null);
@@ -260,6 +253,15 @@ export const RoomView: React.FC<RoomViewProps> = ({
 
   // Chat & Speech Bubbles State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.innerWidth < 640
+  );
+  const [mobilePanel, setMobilePanel] = useState<'chat' | 'inventory' | 'gizmo' | null>(null);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [speechBubbles, setSpeechBubbles] = useState<SpeechBubbleItem[]>([
     {
       id: 'initial-bubble',
@@ -421,6 +423,21 @@ export const RoomView: React.FC<RoomViewProps> = ({
     ) ||
     null;
 
+  // Actions created in the editor live on the avatar object; the store avatar may not carry them
+  const avatarActions: ObjectAction[] = React.useMemo(
+    () =>
+      effectiveCustomAvatarObject?.actions && effectiveCustomAvatarObject.actions.length > 0
+        ? effectiveCustomAvatarObject.actions
+        : liveAvatar?.actions || [],
+    [liveAvatar?.actions, effectiveCustomAvatarObject?.actions]
+  );
+
+  useEffect(() => {
+    if (!activeAvatarActionId) return;
+    if (!avatarActions.some((action) => action.id === activeAvatarActionId)) {
+      setActiveAvatarActionId(null);
+    }
+  }, [avatarActions, activeAvatarActionId]);
   useEffect(() => {
     if (roomChannelRef.current) {
       const myDisplayName = user?.displayName || 'Visitante';
@@ -450,7 +467,7 @@ export const RoomView: React.FC<RoomViewProps> = ({
   }, []);
 
   return (
-    <div id="room-view-container" className="relative w-screen h-screen overflow-hidden bg-[#141416] select-none">
+    <div id="room-view-container" className="relative w-full h-screen h-[100dvh] overflow-hidden bg-[#141416] select-none">
       {/* 3D WebGL Canvas Layer */}
       <div className="absolute inset-0 z-0">
         <LoungeCanvas3D
@@ -466,7 +483,7 @@ export const RoomView: React.FC<RoomViewProps> = ({
           showSpotArrows={showSpotArrows}
           activeUserAvatar={liveAvatar}
           activeAvatarAction={
-            liveAvatar?.actions?.find((action) => action.id === activeAvatarActionId) || null
+            avatarActions.find((action) => action.id === activeAvatarActionId) || null
           }
           customAvatarObject={effectiveCustomAvatarObject}
           gizmoMode={gizmoMode}
@@ -485,7 +502,7 @@ export const RoomView: React.FC<RoomViewProps> = ({
         activeUserAvatar={liveAvatar}
         user={user}
         remotePlayers={remotePlayers}
-        avatarActions={liveAvatar?.actions}
+        avatarActions={avatarActions}
         activeAvatarActionId={activeAvatarActionId}
         onToggleAvatarAction={handleToggleAvatarAction}
       />
@@ -641,8 +658,10 @@ export const RoomView: React.FC<RoomViewProps> = ({
       />
 
       {/* TOP-LEFT HUD: 2D/3D Gizmo Widget with Setas & Spot Radius Clamping */}
-      <div className="absolute top-20 left-3 sm:left-6 z-30 flex flex-col gap-2 pointer-events-auto">
+      {(!isMobile || mobilePanel === 'gizmo') && (
+      <div className={`absolute ${isMobile ? 'bottom-16 left-3' : 'top-20 left-3 sm:left-6'} z-30 flex flex-col gap-2 pointer-events-auto`}>
         <GizmoWidget
+          onClose={isMobile ? () => setMobilePanel(null) : undefined}
           mode={gizmoMode}
           onCycleMode={handleCycleGizmoMode}
           transform={transform}
@@ -656,16 +675,24 @@ export const RoomView: React.FC<RoomViewProps> = ({
           }
         />
       </div>
+      )}
 
       {/* DRAGGABLE & MINIMIZABLE GLASS CHAT (Can be moved anywhere or minimized to keep screen clean) */}
-      <GlassChat
-        roomName={room.name || 'Lounge'}
-        messages={chatMessages}
-        onSendMessage={handleSendMessage}
-      />
+      {(!isMobile || mobilePanel === 'chat') && (
+        <GlassChat
+          roomName={room.name || 'Lounge'}
+          messages={chatMessages}
+          onSendMessage={handleSendMessage}
+          embedded={isMobile}
+          onClose={() => setMobilePanel(null)}
+        />
+      )}
 
       {/* SINGLE UNIFIED INVENTORY: Orientation toggleable (Horizontal at bottom / Vertical on left dock) */}
+      {(!isMobile || mobilePanel === 'inventory') && (
       <UnifiedRoomInventory
+        embedded={isMobile}
+        onClose={() => setMobilePanel(null)}
         slots={roomAccessSlots}
         onUpdateSlots={handleUpdateRoomAccessSlots}
         onSlotClick={handleTriggerAccessSlot}
@@ -680,8 +707,36 @@ export const RoomView: React.FC<RoomViewProps> = ({
         }}
         activeAvatarId={liveAvatar?.id}
         activePoseId={selectedPose.id}
+        avatarActions={avatarActions}
+        activeAvatarActionId={activeAvatarActionId}
+        onToggleAvatarAction={handleToggleAvatarAction}
         onShowToast={showHudToast}
       />
+      )}
+
+      {/* MOBILE DOCK: one panel at a time keeps the 3D scene interactive */}
+      {isMobile && (
+        <nav className="fixed bottom-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 px-1.5 py-1 rounded-2xl bg-[#121319]/95 border border-[#ffd700]/40 backdrop-blur-xl shadow-2xl pointer-events-auto">
+          {([
+            ['chat', MessageSquare, 'Chat'],
+            ['inventory', Package, 'Inventário'],
+            ['gizmo', Move3d, 'Gizmo'],
+          ] as const).map(([key, Icon, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMobilePanel((p) => (p === key ? null : key))}
+              className={`flex flex-col items-center justify-center min-w-[64px] h-11 rounded-xl text-[10px] font-semibold transition-colors cursor-pointer ${
+                mobilePanel === key ? 'bg-[#ffd700] text-black' : 'text-[#ffd700] hover:bg-white/10'
+              }`}
+              aria-label={label}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
 
     </div>
   );

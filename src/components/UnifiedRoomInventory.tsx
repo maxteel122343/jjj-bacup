@@ -14,9 +14,12 @@ import {
   SlidersHorizontal,
   Flame,
 } from 'lucide-react';
-import { RoomAccessSlot, StoreAvatar, AvatarPose, AvatarPoseConfig } from '../types';
+import { RoomAccessSlot, StoreAvatar, AvatarPose, AvatarPoseConfig, ObjectAction } from '../types';
 
 interface UnifiedRoomInventoryProps {
+  avatarActions?: ObjectAction[];
+  activeAvatarActionId?: string | null;
+  onToggleAvatarAction?: (actionId: string) => void;
   slots: RoomAccessSlot[];
   onUpdateSlots: (newSlots: RoomAccessSlot[]) => void;
   onSlotClick?: (slot: RoomAccessSlot) => void;
@@ -29,6 +32,9 @@ interface UnifiedRoomInventoryProps {
   activeAvatarId?: string;
   activePoseId?: string;
   onShowToast?: (msg: string) => void;
+  // Mobile dock mode: opened/closed by the parent dock, always horizontal
+  embedded?: boolean;
+  onClose?: () => void;
 }
 
 export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
@@ -44,15 +50,22 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
   activeAvatarId,
   activePoseId,
   onShowToast,
+  avatarActions = [],
+  activeAvatarActionId = null,
+  onToggleAvatarAction,
+  embedded = false,
+  onClose,
 }) => {
   // Orientation: horizontal (bottom bar) or vertical (side dock)
-  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>(() => {
+  const [orientationState, setOrientation] = useState<'horizontal' | 'vertical'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('3d_social_room_inventory_orientation');
       if (saved === 'vertical' || saved === 'horizontal') return saved;
     }
     return 'horizontal';
   });
+
+  const orientation = embedded ? 'horizontal' : orientationState;
 
   const handleToggleOrientation = () => {
     const next = orientation === 'horizontal' ? 'vertical' : 'horizontal';
@@ -63,9 +76,11 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
   };
 
   // Active Tab inside unified inventory: 'atalhos' | 'poses' | 'avatars'
-  const [activeTab, setActiveTab] = useState<'atalhos' | 'poses' | 'avatars'>('atalhos');
-  // Collapsed state to keep screen clean on mobile
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'atalhos' | 'poses' | 'avatars' | 'actions'>('atalhos');
+  // Collapsed by default on small screens so the 3D scene stays interactive
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.innerWidth < 640
+  );
 
   // Drag and drop states for hotbar slots
   const [draggedSlotIndex, setDraggedSlotIndex] = useState<number | null>(null);
@@ -198,7 +213,7 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
   };
 
   // Minimized Floating Pill Mode
-  if (isCollapsed) {
+  if (isCollapsed && !embedded) {
     return (
       <div
         className={`fixed z-30 select-none ${
@@ -227,8 +242,8 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
   // Base Container Classes depending on Orientation (Horizontal at bottom center or Vertical at bottom left)
   const containerClasses =
     orientation === 'horizontal'
-      ? 'fixed bottom-2 inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-30 max-w-full sm:max-w-3xl md:max-w-4xl bg-[#121319]/95 backdrop-blur-xl border border-[#ffd700]/40 rounded-2xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex flex-col gap-2'
-      : 'fixed bottom-4 left-3 z-30 w-64 sm:w-72 max-h-[52vh] bg-[#121319]/95 backdrop-blur-xl border border-[#ffd700]/40 rounded-2xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex flex-col gap-2 overflow-hidden';
+      ? `fixed ${embedded ? 'bottom-16' : 'bottom-2'} inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-30 max-w-full sm:max-w-3xl md:max-w-4xl max-h-[45dvh] overflow-y-auto bg-[#121319]/95 backdrop-blur-xl border border-[#ffd700]/40 rounded-2xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.85)]       flex flex-col gap-2`
+      : 'fixed bottom-4 left-3  z-30 w-56 sm:w-72 max-h-[45dvh] sm:max-h-[52vh] bg-[#121319]/95 backdrop-blur-xl border border-[#ffd700]/40 rounded-2xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex flex-col gap-2 overflow-hidden';
 
   return (
     <div id="unified-room-inventory" className={containerClasses}>
@@ -277,6 +292,17 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
             >
               Avatares ({storeAvatars.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('actions')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                activeTab === 'actions'
+                  ? 'bg-[#ffd700] text-black shadow-sm font-bold'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Actions ({avatarActions.length})
+            </button>
           </div>
         </div>
 
@@ -310,7 +336,7 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
           {/* Collapse Button */}
           <button
             type="button"
-            onClick={() => setIsCollapsed(true)}
+            onClick={() => (embedded && onClose ? onClose() : setIsCollapsed(true))}
             className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             title="Recolher inventário"
           >
@@ -558,6 +584,48 @@ export const UnifiedRoomInventory: React.FC<UnifiedRoomInventoryProps> = ({
                     <span className="text-[8px] font-mono text-cyan-400">AVATAR</span>
                   </div>
                 </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* CONTENT TAB 4: ACTIONS OF THE USER AVATAR */}
+      {activeTab === 'actions' && (
+        <div
+          className={`${
+            orientation === 'horizontal'
+              ? 'flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 max-h-36 scrollbar-thin scrollbar-thumb-zinc-700'
+              : 'grid grid-cols-2 gap-2 overflow-y-auto max-h-[60vh] pr-1 scrollbar-thin scrollbar-thumb-zinc-700'
+          }`}
+        >
+          {avatarActions.length === 0 ? (
+            <div className="w-full py-6 text-center text-zinc-500 text-xs">
+              Nenhuma action neste avatar. Crie uma no editor do criador.
+            </div>
+          ) : (
+            avatarActions.map((action, index) => {
+              const isActive = activeAvatarActionId === action.id;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => onToggleAvatarAction?.(action.id)}
+                  aria-pressed={isActive}
+                  title={isActive ? 'Clique para parar' : `Ativar ${action.name}`}
+                  className={`flex-shrink-0 ${
+                    orientation === 'horizontal' ? 'w-28' : 'w-full'
+                  } h-16 rounded-xl border p-2 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all ${
+                    isActive
+                      ? 'border-cyan-300 bg-cyan-500/20 shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                      : 'border-white/10 bg-[#14151c] hover:border-cyan-400/50 hover:bg-[#1a1b24]'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 ${isActive ? 'text-cyan-300' : 'text-[#ffd700]'}`} />
+                  <span className="text-[10px] font-bold text-zinc-200 truncate max-w-full">
+                    {index + 1}. {action.name}
+                  </span>
+                </button>
               );
             })
           )}

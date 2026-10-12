@@ -1067,6 +1067,42 @@ export const App: React.FC = () => {
     setIsPublishItemModalOpen(true);
   };
 
+  // Publish one specific placed object instance (its own name, actions and attachment settings)
+  const handlePublishPlacedObject = (objectId: string) => {
+    const obj = activeRoom.placedObjects.find((o) => o.id === objectId);
+    if (!obj) return;
+    const base = inventory.find((i) => i.id === obj.assetId || i.assetId === obj.assetId);
+    const objType: InventoryItem['type'] =
+      obj.type === 'avatar' || obj.isAvatar
+        ? 'avatar'
+        : obj.type === 'acessorio' || obj.isAccessory
+        ? 'acessorio'
+        : obj.type === 'pose' || obj.isPose
+        ? 'pose'
+        : 'item';
+    setPublishingItem({
+      ...(base || {
+        id: obj.assetId,
+        fileName: obj.name,
+        thumbUrl: '',
+      }),
+      id: base?.id || obj.assetId,
+      assetId: base?.assetId || obj.assetId,
+      fileName: base?.fileName || obj.name,
+      displayName: obj.name,
+      thumbUrl: base?.thumbUrl || '',
+      type: objType,
+      fileBlobUrl: obj.fileBlobUrl || base?.fileBlobUrl,
+      modelType: obj.modelType || base?.modelType,
+      actions: obj.actions || base?.actions,
+      isAccessory: obj.isAccessory || base?.isAccessory,
+      accessoryAttachment: obj.accessoryAttachment || base?.accessoryAttachment,
+      accessoryTransform: obj.accessoryTransform || base?.accessoryTransform,
+      sourceObjectId: obj.id,
+    } as InventoryItem);
+    setIsPublishItemModalOpen(true);
+  };
+
   const handleConfirmPublishItem = async (payload: {
     item: InventoryItem;
     name: string;
@@ -1079,10 +1115,44 @@ export const App: React.FC = () => {
     publishMode: 'simples' | 'avancado';
     associatedAvatarIds?: string[];
     associatedAvatarNames?: string[];
+    poseAccess?: 'requires_avatar' | 'free';
     actions?: ObjectAction[];
     accessoryAttachment?: AccessoryAttachmentPoint;
     accessoryTransform?: AccessoryTransform;
   }) => {
+    // Poses attached (in the editor) to the avatar being published, or the avatars a pose is attached to
+    const sourceId = payload.item.sourceObjectId;
+    const itemKeys = new Set<string>([payload.item.id, payload.item.assetId || '']);
+    if (sourceId) {
+      itemKeys.clear();
+      itemKeys.add(sourceId);
+    } else {
+      activeRoom.placedObjects.forEach((o) => {
+        if (o.assetId === payload.item.id || o.assetId === payload.item.assetId) itemKeys.add(o.id);
+      });
+    }
+    const attachedPoseObjects =
+      payload.objectType === 'avatar'
+        ? activeRoom.placedObjects.filter(
+            (o) =>
+              (o.type === 'pose' || o.isPose) && o.attachedAvatarIds?.some((id) => itemKeys.has(id))
+          )
+        : [];
+    const poseAccess = payload.poseAccess || 'requires_avatar';
+    const resolvedAssociatedIds =
+      payload.objectType === 'pose' && !payload.associatedAvatarIds?.length
+        ? storeAvatars
+            .filter((a) =>
+              activeRoom.placedObjects.some(
+                (o) =>
+                  (sourceId
+                    ? o.id === sourceId
+                    : o.assetId === payload.item.id || o.assetId === payload.item.assetId) &&
+                  o.attachedAvatarIds?.includes(a.id)
+              )
+            )
+            .map((a) => a.id)
+        : payload.associatedAvatarIds;
     // 1. Persist to Supabase and guarantee localStorage persistence
     await persistStoreItem(
       {
@@ -1107,6 +1177,8 @@ export const App: React.FC = () => {
           accessoryAttachment: payload.accessoryAttachment,
           accessoryTransform: payload.accessoryTransform,
           isAccessory: payload.objectType === 'acessorio',
+          poseAccess: payload.poseAccess,
+          attachedPoses: attachedPoseObjects.map((o) => ({ id: o.id, name: o.name })),
         },
       },
       user
@@ -1158,9 +1230,12 @@ export const App: React.FC = () => {
         owned: true,
         author: user?.displayName || 'Luzenne',
         isPublishedByCreator: true,
-        associatedAvatarIds: payload.associatedAvatarIds,
-        associatedAvatarNames: payload.associatedAvatarNames,
+        associatedAvatarIds: resolvedAssociatedIds,
+        associatedAvatarNames:
+          payload.associatedAvatarNames ||
+          storeAvatars.filter((a) => resolvedAssociatedIds?.includes(a.id)).map((a) => a.name),
         rarity: payload.rarity,
+        access: poseAccess,
       };
       setAvatarPoses((prev) => [newPose, ...prev.filter((p) => p.id !== newPose.id)]);
       showToast(
@@ -1171,8 +1246,26 @@ export const App: React.FC = () => {
         }`
       );
     } else if (payload.objectType === 'avatar') {
+      const avatarId = `av-pub-${payload.item.id}-${Date.now()}`;
+      const bundledPoses: AvatarPoseConfig[] = attachedPoseObjects.map((o) => {
+        const poseInv = inventory.find((i) => i.id === o.assetId);
+        return {
+          id: `pose-pub-${o.id}-${Date.now()}`,
+          name: o.name,
+          applied: false,
+          thumbnailUrl: poseInv?.thumbUrl || payload.thumbnailUrl || payload.item.thumbUrl,
+          price: 0,
+          owned: true,
+          author: user?.displayName || 'Luzenne',
+          isPublishedByCreator: true,
+          associatedAvatarIds: [avatarId],
+          associatedAvatarNames: [payload.name],
+          access: poseAccess,
+          rarity: payload.rarity,
+        };
+      });
       const newAvatar: StoreAvatar = {
-        id: `av-pub-${payload.item.id}-${Date.now()}`,
+        id: avatarId,
         name: payload.name,
         price: payload.price,
         rarity: payload.rarity,
@@ -1186,9 +1279,22 @@ export const App: React.FC = () => {
         originalItemId: payload.item.id,
         description: payload.description,
         actions: payload.actions || [],
+        poseIds: bundledPoses.map((p) => p.id),
       };
 
       setStoreAvatars((prev) => [newAvatar, ...prev.filter((a) => a.name !== payload.name)]);
+      if (bundledPoses.length > 0) {
+        const bundledWithAvatar = bundledPoses.map((p) => ({
+          ...p,
+          associatedAvatarIds: [newAvatar.id],
+          associatedAvatarNames: [newAvatar.name],
+        }));
+        setAvatarPoses((prev) => [
+          ...bundledWithAvatar,
+          ...prev.filter((p) => !bundledWithAvatar.some((b) => b.id === p.id)),
+        ]);
+        showToast(`Avatar "${newAvatar.name}" publicado com ${bundledPoses.length} pose(s) anexada(s)!`);
+      }
       if (newAvatar.actions?.length) {
         setCustomizationPreviewAvatarId(newAvatar.id);
         setCustomizationInitialTab('loja');
@@ -1921,6 +2027,16 @@ export const App: React.FC = () => {
     showToast(`Spot "${name}" (${type}) adicionado!`);
   };
 
+  const handleRenameSpot = (spotId: string, name: string) => {
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === activeRoomId
+          ? { ...r, spots: r.spots.map((s) => (s.id === spotId ? { ...s, name } : s)) }
+          : r
+      )
+    );
+  };
+
   const handleRemoveSpot = (spotId: string) => {
     setRooms((prev) =>
       prev.map((r) =>
@@ -2213,10 +2329,33 @@ export const App: React.FC = () => {
     showToast(`"${activeRoom.name}" publicada com sucesso! Ela agora aparece na Vitrine.`);
   };
 
-  // Change placed object type (Móvel | Objeto | Avatar | Acessório)
+  // Attach/detach a pose object to avatars (editor avatar objects or store avatars)
+  const handleTogglePoseAvatarAttachment = (poseObjectId: string, avatarId: string) => {
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === activeRoomId
+          ? {
+              ...r,
+              placedObjects: r.placedObjects.map((obj) => {
+                if (obj.id !== poseObjectId) return obj;
+                const cur = obj.attachedAvatarIds || [];
+                return {
+                  ...obj,
+                  attachedAvatarIds: cur.includes(avatarId)
+                    ? cur.filter((x) => x !== avatarId)
+                    : [...cur, avatarId],
+                };
+              }),
+            }
+          : r
+      )
+    );
+  };
+
+  // Change placed object type (Móvel | Objeto | Avatar | Acessório | Pose)
   const handleUpdateObjectType = (
     id: string,
-    type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio'
+    type: 'cenario' | 'movel' | 'objeto' | 'avatar' | 'acessorio' | 'pose'
   ) => {
     setRooms((prev) =>
       prev.map((r) =>
@@ -2230,6 +2369,7 @@ export const App: React.FC = () => {
                       type,
                       isAvatar: type === 'avatar',
                       isAccessory: type === 'acessorio',
+                      isPose: type === 'pose',
                     }
                   : obj
               ),
@@ -2526,6 +2666,10 @@ export const App: React.FC = () => {
       {currentScreen === 'room' && selectedLobbyRoom && (
         <RoomView
           room={selectedLobbyRoom}
+          customAvatarObject={
+            selectedLobbyRoom.editorRoom?.placedObjects.find((o) => o.id === customAvatarObjectId) ||
+            null
+          }
           activeUserAvatar={activeUserAvatar}
           user={user}
           poses={avatarPoses}
@@ -2602,6 +2746,7 @@ export const App: React.FC = () => {
             onOpenUploadModal={() => setIsUploadModalOpen(true)}
             onInsertAssetToScene={handleInsertAssetToScene}
             onAddSpot={handleAddSpot}
+            onRenameSpot={handleRenameSpot}
             onRemoveSpot={handleRemoveSpot}
             onClearAllSpots={handleClearAllSpots}
             onRemoveOverlappingSpots={handleRemoveOverlappingSpots}
@@ -2619,6 +2764,9 @@ export const App: React.FC = () => {
             customAvatarObjectId={customAvatarObjectId}
             onSetCustomAvatarObjectId={setCustomAvatarObjectId}
             onUpdateObjectType={handleUpdateObjectType}
+            storeAvatars={storeAvatars}
+            onTogglePoseAvatarAttachment={handleTogglePoseAvatarAttachment}
+            onPublishObject={handlePublishPlacedObject}
             sceneAssetBlobUrl={activeRoom.sceneAssetBlobUrl}
             sceneAssetName={
               activeRoom.sceneAssetBlobUrl

@@ -684,7 +684,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
   };
 
   const handleBuyPose = (pose: AvatarPoseConfig) => {
-    const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0);
+    const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free');
     const userOwnsAvatar =
       !isRestricted ||
       pose.associatedAvatarIds!.some((id) => {
@@ -1513,7 +1513,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                       {poses
                         .filter((p) => (p.name || '').toLowerCase().includes(searchQueryInventory.toLowerCase()))
                         .map((pose) => {
-                          const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0);
+                          const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free');
                           const isAvatarCompatible = !isRestricted || pose.associatedAvatarIds!.some((id) => ownedAvatarIds.includes(id) || selectedAvatarId === id);
                           const isLocked = isRestricted && !isAvatarCompatible;
 
@@ -2197,7 +2197,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                 {poses.map((pose) => {
                   const isDragOver = dragOverPoseId === pose.id;
                   const isRestricted = Boolean(
-                    pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0
+                    pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free'
                   );
                   const isAvatarCompatible =
                     !isRestricted ||
@@ -2699,7 +2699,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
           <div className="flex-1 overflow-y-auto pt-4 pr-1 space-y-3 scrollbar-thin scrollbar-thumb-zinc-800">
             {poses.map((pose) => {
               const isRestricted = Boolean(
-                pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0
+                pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free'
               );
               const userOwnsAvatar =
                 !isRestricted ||

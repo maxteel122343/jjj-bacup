@@ -26,6 +26,7 @@ interface GizmoWidgetProps {
   onChangeTransform: (newTransform: AvatarTransform) => void;
   onSetMode?: (mode: GizmoMode) => void;
   spotRadius?: number;
+  onClose?: () => void;
 }
 
 export const GizmoWidget: React.FC<GizmoWidgetProps> = ({
@@ -35,6 +36,7 @@ export const GizmoWidget: React.FC<GizmoWidgetProps> = ({
   onChangeTransform,
   onSetMode,
   spotRadius = 0.45,
+  onClose,
 }) => {
   const isDraggingRef = useRef(false);
   const dragStartPosRef = useRef({ x: 0, y: 0 });
@@ -240,7 +242,7 @@ export const GizmoWidget: React.FC<GizmoWidgetProps> = ({
   };
 
   // Compact minimized view for mobile
-  if (isMinimized) {
+  if (isMinimized && !onClose) {
     return (
       <div className="select-none pointer-events-auto">
         <button
@@ -288,7 +290,7 @@ export const GizmoWidget: React.FC<GizmoWidgetProps> = ({
         {/* Minimize Button to keep mobile screen clean */}
         <button
           type="button"
-          onClick={() => setIsMinimized(true)}
+          onClick={() => (onClose ? onClose() : setIsMinimized(true))}
           className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           title="Minimizar Gizmo"
         >
