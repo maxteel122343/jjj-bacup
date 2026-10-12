@@ -101,6 +101,8 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       group: THREE.Group;
       arrowGroup: THREE.Group;
       arrowMat: THREE.MeshBasicMaterial;
+      pillarMesh: THREE.Mesh;
+      pillarMat: THREE.MeshBasicMaterial;
       outerRingMat: THREE.MeshBasicMaterial;
       innerRingMat: THREE.MeshBasicMaterial;
       spotId: number;
@@ -458,15 +460,35 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       arrowGroup.add(cap);
 
       // Arrow visibility based on config & showSpotArrows
-      arrowGroup.visible = isArrowOnly ? true : isYellow ? false : showSpotArrowsRef.current;
+      arrowGroup.visible = style === 'pillar' ? false : isArrowOnly ? true : isYellow ? false : showSpotArrowsRef.current;
 
       group.add(arrowGroup);
+
+      // 6. Pulsing light pillar (alternative to the arrow)
+      const pillarMat = new THREE.MeshBasicMaterial({
+        color: 0xffd700,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const pillarMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2 * signalScale, 0.2 * signalScale, 1.8, 24, 1, true),
+        pillarMat
+      );
+      pillarMesh.position.y = 0.9;
+      pillarMesh.visible = style === 'pillar';
+      (pillarMesh as any).userData = { spotId, isSpotInteractive: true, isSpotPillar: true };
+      group.add(pillarMesh);
       spotClickablesGroup.add(group);
 
       spotAnimatedMeshesRef.current.push({
         group,
         arrowGroup,
         arrowMat,
+        pillarMesh,
+        pillarMat,
         outerRingMat,
         innerRingMat,
         spotId,
@@ -1023,9 +1045,14 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       // Animate spot circles & blinking down-arrows
       spotAnimatedMeshesRef.current.forEach((item) => {
         const isCurrentSpot = item.spotId === currentSpotIdRef.current;
+        const isPillarStyle = spotVisualConfigRef.current?.indicatorStyle === 'pillar';
         // Show arrow only if not currently occupying this spot and toggle is on
-        const shouldShowArrow = showSpotArrowsRef.current && !isCurrentSpot;
+        const shouldShowArrow = showSpotArrowsRef.current && !isCurrentSpot && !isPillarStyle;
         item.arrowGroup.visible = shouldShowArrow;
+        item.pillarMesh.visible = isPillarStyle && !isCurrentSpot;
+        if (isPillarStyle) {
+          item.pillarMat.opacity = 0.22 + 0.33 * (0.5 + 0.5 * Math.sin(time * 2.4));
+        }
 
         if (shouldShowArrow) {
           // Bobbing up and down
@@ -1518,7 +1545,7 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
         activeUserAvatar.name.toLowerCase().includes('luzenne') ||
         activeUserAvatar.id === 'av-default');
 
-    const renderGlbAvatar = (loadUrl: string, targetName: string) => {
+    const renderGlbAvatar = (loadUrl: string, targetName: string, objScale?: [number, number, number]) => {
       const gltfLoader = new GLTFLoader();
       gltfLoader.load(
         loadUrl,
@@ -1528,7 +1555,12 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
           const size = box.getSize(new THREE.Vector3());
           const targetH = 1.70;
           const s = targetH / Math.max(0.1, size.y);
-          m.scale.set(s, s, s);
+          // Editor-defined scale wins, so the tested avatar matches the size set in the editor
+          if (objScale) {
+            m.scale.set(objScale[0], objScale[1], objScale[2]);
+          } else {
+            m.scale.set(s, s, s);
+          }
           const scaledBox = new THREE.Box3().setFromObject(m);
           const center = scaledBox.getCenter(new THREE.Vector3());
           m.position.x = -center.x;
@@ -1555,15 +1587,15 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     if (customAvatarUuid) {
       resolveAssetDownloadUrl(customAvatarUuid).then((freshUrl) => {
         if (freshUrl) {
-          renderGlbAvatar(freshUrl, customAvatarObject?.name || 'Avatar');
+          renderGlbAvatar(freshUrl, customAvatarObject?.name || 'Avatar', customAvatarObject?.scale);
         } else if (customAvatarObject?.fileBlobUrl && !customAvatarObject.fileBlobUrl.startsWith('blob:')) {
-          renderGlbAvatar(customAvatarObject.fileBlobUrl, customAvatarObject?.name || 'Avatar');
+          renderGlbAvatar(customAvatarObject.fileBlobUrl, customAvatarObject?.name || 'Avatar', customAvatarObject?.scale);
         } else {
           createMissingAvatarPlaceholder(playerGroup, customAvatarObject?.name || 'Avatar');
         }
       });
     } else if (customAvatarObject?.fileBlobUrl) {
-      renderGlbAvatar(customAvatarObject.fileBlobUrl, customAvatarObject?.name || 'Avatar');
+      renderGlbAvatar(customAvatarObject.fileBlobUrl, customAvatarObject?.name || 'Avatar', customAvatarObject?.scale);
     } else if (activeUserAvatar?.isMissingAsset || (!avatarUuid && !activeUserAvatar?.fileBlobUrl && !isSystemDefault)) {
       // Avatar personalizado com asset_id ausente: exibe marcador de arquivo ausente!
       createMissingAvatarPlaceholder(playerGroup, activeUserAvatar?.name || 'Avatar 3D');
@@ -1670,7 +1702,7 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       }
       if (item.group) {
         item.group.children.forEach((child) => {
-          if ((child as any).userData?.isSpotArrow) return;
+          if ((child as any).userData?.isSpotArrow || (child as any).userData?.isSpotPillar) return;
           child.visible = !isArrowOnly;
           if ((child as THREE.Mesh).isMesh) {
             child.scale.set(signalScale, signalScale, signalScale);

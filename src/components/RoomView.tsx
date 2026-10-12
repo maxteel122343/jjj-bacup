@@ -87,25 +87,47 @@ export const RoomView: React.FC<RoomViewProps> = ({
     positionOffset: [0, 0, 0],
   });
 
+  // Poses attached in the editor to the avatar under test appear in the room inventory
+  const attachedPoseExtras: AvatarPose[] = React.useMemo(() => {
+    const objs = room.editorRoom?.placedObjects || [];
+    const avatarObj =
+      customAvatarObject ||
+      objs.find((o) => o.isAvatar || o.type === 'avatar' || o.name.toLowerCase().includes('avatar')) ||
+      null;
+    const avatarKeys = new Set<string>(
+      [avatarObj?.id, avatarObj?.assetId, liveAvatar?.id, liveAvatar?.originalItemId].filter(
+        (v): v is string => Boolean(v)
+      )
+    );
+    return objs
+      .filter((o) => (o.type === 'pose' || o.isPose) && o.attachedAvatarIds?.some((id) => avatarKeys.has(id)))
+      .map((o) => ({
+        id: `attached-pose-${o.id}`,
+        name: o.name,
+        label: o.name,
+        owned: true,
+        access: 'free' as const,
+        isPublishedByCreator: false,
+      }));
+  }, [room.editorRoom, customAvatarObject, liveAvatar]);
+
   // Calculate live poses matching either user created/customized poses or default poses
   const poses: AvatarPose[] = React.useMemo(() => {
-    if (propPoses && propPoses.length > 0) {
-      return propPoses.map((p) => ({
-        id: p.id,
-        name: p.name,
-        label: p.name,
-        thumbnailUrl: p.thumbnailUrl,
-        description: p.description,
-        price: p.price,
-        owned: p.owned,
-        author: p.author,
-        isPublishedByCreator: p.isPublishedByCreator,
-        associatedAvatarIds: p.associatedAvatarIds,
-        associatedAvatarNames: p.associatedAvatarNames,
-      }));
-    }
-    return INITIAL_POSES;
-  }, [propPoses]);
+    const base: AvatarPose[] = (propPoses || []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            label: p.name,
+            thumbnailUrl: p.thumbnailUrl,
+            description: p.description,
+            price: p.price,
+            owned: p.owned,
+            author: p.author,
+            isPublishedByCreator: p.isPublishedByCreator,
+            associatedAvatarIds: p.associatedAvatarIds,
+            associatedAvatarNames: p.associatedAvatarNames,
+          }));
+    return [...base, ...attachedPoseExtras];
+  }, [propPoses, attachedPoseExtras]);
 
   const ownedAvatarIds = React.useMemo(() => {
     return storeAvatars

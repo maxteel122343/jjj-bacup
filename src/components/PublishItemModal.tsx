@@ -34,6 +34,11 @@ interface PublishItemModalProps {
   item: InventoryItem | null;
   user?: CreatorUser | null;
   availableAvatars?: StoreAvatar[];
+  attachInfo?: {
+    poses: { id: string; name: string; published: boolean }[];
+    unpublishedAvatars: string[];
+    existing?: { id: string; name: string; kind: 'avatar' | 'pose' | 'item' };
+  };
   onConfirmPublish: (payload: {
     item: InventoryItem;
     name: string;
@@ -47,6 +52,8 @@ interface PublishItemModalProps {
     associatedAvatarIds?: string[];
     associatedAvatarNames?: string[];
     poseAccess?: 'requires_avatar' | 'free';
+    bundlePoses?: boolean;
+    updateExistingId?: string;
     actions?: ObjectAction[];
     accessoryAttachment?: AccessoryAttachmentPoint;
     accessoryTransform?: AccessoryTransform;
@@ -60,9 +67,12 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
   item,
   user,
   availableAvatars = [],
+  attachInfo,
   onConfirmPublish,
   onGoToStore,
 }) => {
+  const [bundlePoses, setBundlePoses] = useState(true);
+  const [publishAs, setPublishAs] = useState<'update' | 'new'>('update');
   const [publishMode, setPublishMode] = useState<'simples' | 'avancado'>('simples');
   const [title, setTitle] = useState('');
   const [objectType, setObjectType] = useState<StoreObjectType>('item');
@@ -90,21 +100,27 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
       setHasSaved(false);
       setAssociatedAvatarIds([]);
       setPoseAccess('requires_avatar');
-
-      // Auto-detect type
+      setBundlePoses(true);
+      setPublishAs('update');
       const lower = (item.displayName || '').toLowerCase();
-      if (item.type === 'Avatar') {
+      const itemTypeLower = String(item.type || '').toLowerCase();
+      if (itemTypeLower === 'avatar') {
         setObjectType('avatar');
         setHashtags('#avatar, #personagem, #3d');
         setPrice(150);
         setRarity('ÉLITE');
-      } else if (item.type === 'Sala') {
+      } else if (itemTypeLower === 'pose') {
+        setObjectType('pose');
+        setHashtags('#pose, #avatar, #animacao');
+        setPrice(0);
+        setRarity('COMUM');
+      } else if (itemTypeLower === 'sala') {
         setObjectType('sala');
         setHashtags('#sala, #cenario, #vitrine3d');
         setPrice(0);
         setRarity('RARO');
       } else if (
-        item.type === 'Acessorio' ||
+        itemTypeLower === 'acessorio' ||
         item.isAccessory ||
         lower.includes('drone') ||
         lower.includes('chapeu') ||
@@ -166,6 +182,10 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
       setDescription(`Modelo 3D criado por ${user?.displayName || 'Luzenne'}.`);
     }
   }, [item, user]);
+
+  const existingKind = objectType === 'avatar' ? 'avatar' : objectType === 'pose' ? 'pose' : 'item';
+  const matchedExisting =
+    attachInfo?.existing && attachInfo.existing.kind === existingKind ? attachInfo.existing : undefined;
 
   if (!isOpen || !item) return null;
 
@@ -274,6 +294,8 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
           objectType === 'pose' && associatedNames.length > 0 ? associatedNames : undefined,
         actions: actions.length > 0 ? actions : undefined,
         poseAccess: objectType === 'pose' || objectType === 'avatar' ? poseAccess : undefined,
+        bundlePoses: objectType === 'avatar' ? bundlePoses : undefined,
+        updateExistingId: matchedExisting && publishAs === 'update' ? matchedExisting.id : undefined,
         accessoryAttachment: objectType === 'acessorio' ? accessoryAttachment : undefined,
         accessoryTransform:
           objectType === 'acessorio'
@@ -593,6 +615,84 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
             )}
           </div>
 
+          {matchedExisting && (
+            <div className="p-3 rounded-xl bg-black/60 border border-amber-400/50 space-y-2">
+              <label className="font-semibold text-xs text-amber-300">
+                ⚠️ Este item já foi publicado como "{matchedExisting.name}"
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  ['update', '♻️ Atualizar o publicado'],
+                  ['new', '➕ Publicar como novo'],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPublishAs(val)}
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                      publishAs === val
+                        ? 'bg-amber-400/20 border-amber-300 text-white'
+                        : 'bg-[#181920] border-white/10 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                {publishAs === 'update'
+                  ? 'Substitui a versão na loja pelas suas modificações, sem duplicar.'
+                  : 'Cria um segundo item na loja; o publicado anteriormente continua como está.'}
+              </p>
+            </div>
+          )}
+
+          {objectType === 'avatar' && attachInfo && attachInfo.poses.length > 0 && (
+            <div className="p-3 rounded-xl bg-black/60 border border-cyan-400/40 space-y-2">
+              <label className="font-semibold text-xs text-cyan-300">
+                Este avatar tem {attachInfo.poses.length} pose(s) anexada(s)
+              </label>
+              <ul className="text-[10px] text-zinc-300 space-y-0.5">
+                {attachInfo.poses.map((p) => (
+                  <li key={p.id}>
+                    • {p.name} — {p.published ? '✓ já publicada (será vinculada)' : 'não publicada'}
+                  </li>
+                ))}
+              </ul>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  [true, '📦 Combo: avatar + poses'],
+                  [false, '👤 Só o avatar'],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={String(val)}
+                    type="button"
+                    onClick={() => setBundlePoses(val)}
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                      bundlePoses === val
+                        ? 'bg-cyan-400/20 border-cyan-300 text-white'
+                        : 'bg-[#181920] border-white/10 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                {bundlePoses
+                  ? 'Publica o avatar e as poses não publicadas juntos, como um combo.'
+                  : 'Publica só o avatar. Poses ainda não publicadas continuam fora da loja.'}
+              </p>
+            </div>
+          )}
+
+          {objectType === 'pose' && attachInfo && attachInfo.unpublishedAvatars.length > 0 && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/50 text-[11px] text-amber-200">
+              ⚠️ O avatar {attachInfo.unpublishedAvatars.join(', ')} ainda não foi publicado. A pose será
+              publicada, mas só fica liberada na loja quando o avatar for publicado.
+            </div>
+          )}
+
           {/* Acesso às poses */}
           {(objectType === 'pose' || objectType === 'avatar') && (
             <div className="p-3 rounded-xl bg-black/60 border border-[#d4af37]/40 space-y-2">
@@ -739,7 +839,7 @@ export const PublishItemModal: React.FC<PublishItemModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-zinc-400 hover:text-white font-medium cursor-pointer"
             >
-              Cancelar
+              {hasSaved ? 'Continuar editando' : 'Cancelar'}
             </button>
 
             {hasSaved ? (

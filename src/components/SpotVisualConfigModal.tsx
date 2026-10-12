@@ -56,6 +56,13 @@ export const SpotVisualConfigModal: React.FC<SpotVisualConfigModalProps> = ({
       icon: <ArrowDown className="w-4 h-4 text-cyan-400 animate-bounce" />,
     },
     {
+      id: 'pillar',
+      title: 'Pilar de Luz Pulsante',
+      desc: 'Coluna de luz translúcida que pulsa sobre o spot, em vez da seta. Só estética.',
+      badgeColor: 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-400/30',
+      icon: <span className="w-1.5 h-4 rounded-sm bg-gradient-to-t from-amber-400 to-transparent animate-pulse" />,
+    },
+    {
       id: 'full',
       title: 'Completo (Sinalização + Seta)',
       desc: 'Exibe tanto a sinalização no chão quanto a seta indicadora suspensa.',

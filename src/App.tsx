@@ -21,6 +21,7 @@ import {
   INITIAL_CUSTOMIZATION_ITEMS,
   INITIAL_STORE_AVATARS,
   INITIAL_POSES as INITIAL_CUSTOMIZATION_POSES,
+  LEGACY_SEED_POSE_IDS,
 } from './data/initialCustomizationData';
 import {
   RoomEditorState,
@@ -106,10 +107,10 @@ export const App: React.FC = () => {
     const saved = localStorage.getItem('3d_social_creator_poses');
     if (saved) {
       try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return INITIAL_CUSTOMIZATION_POSES;
-      }
+        return (JSON.parse(saved) as AvatarPoseConfig[]).filter((p) => !LEGACY_SEED_POSE_IDS.has(p.id));
+              } catch (e) {
+                return INITIAL_CUSTOMIZATION_POSES;
+              }
     }
     return INITIAL_CUSTOMIZATION_POSES;
   });
@@ -660,6 +661,30 @@ export const App: React.FC = () => {
   };
 
   const handlePublishPose = (newPose: AvatarPoseConfig) => {
+    persistStoreItem(
+      {
+        id: newPose.id,
+        name: newPose.name,
+        objectType: 'pose',
+        price: newPose.price || 0,
+        hashtags: ['#pose', '#avatar', '#animacao'],
+        thumbnailUrl: newPose.thumbnailUrl,
+        rarity: newPose.rarity || 'COMUM',
+        description: newPose.description || '',
+        publishMode: 'simples',
+        author: user?.displayName || 'Luzenne',
+        associatedAvatarIds: newPose.associatedAvatarIds || [],
+        metadata: {
+          associatedAvatarNames: newPose.associatedAvatarNames || [],
+          associatedAvatarIds: newPose.associatedAvatarIds || [],
+          poseAccess: newPose.access,
+        },
+      } as any,
+      user
+    ).then((res) => {
+      if (res?.error) showToast(`⚠️ ${res.error}`);
+    });
+
     setAvatarPoses((prev) => {
       const updated = [newPose, ...prev.filter((p) => p.id !== newPose.id)];
       safeLocalStorageSet('3d_social_creator_poses', JSON.stringify(updated));
@@ -1116,6 +1141,8 @@ export const App: React.FC = () => {
     associatedAvatarIds?: string[];
     associatedAvatarNames?: string[];
     poseAccess?: 'requires_avatar' | 'free';
+    bundlePoses?: boolean;
+    updateExistingId?: string;
     actions?: ObjectAction[];
     accessoryAttachment?: AccessoryAttachmentPoint;
     accessoryTransform?: AccessoryTransform;
@@ -1139,23 +1166,39 @@ export const App: React.FC = () => {
           )
         : [];
     const poseAccess = payload.poseAccess || 'requires_avatar';
+    const sourceObjs = activeRoom.placedObjects.filter((o) =>
+      sourceId ? o.id === sourceId : o.assetId === payload.item.id || o.assetId === payload.item.assetId
+    );
+    const attachedIds = Array.from(new Set(sourceObjs.flatMap((o) => o.attachedAvatarIds || [])));
+    const matchStoreAvatar = (attId: string) => {
+      const keys = new Set<string>([attId]);
+      const placed = activeRoom.placedObjects.find((o) => o.id === attId);
+      if (placed?.assetId) keys.add(placed.assetId);
+      return storeAvatars.filter(
+        (a) => keys.has(a.id) || (a.originalItemId && keys.has(a.originalItemId)) || (a.assetId && keys.has(a.assetId))
+      );
+    };
+    const attachResolved =
+      payload.objectType === 'pose'
+        ? Array.from(new Set(attachedIds.flatMap((id) => matchStoreAvatar(id).map((a) => a.id))))
+        : [];
     const resolvedAssociatedIds =
-      payload.objectType === 'pose' && !payload.associatedAvatarIds?.length
-        ? storeAvatars
-            .filter((a) =>
-              activeRoom.placedObjects.some(
-                (o) =>
-                  (sourceId
-                    ? o.id === sourceId
-                    : o.assetId === payload.item.id || o.assetId === payload.item.assetId) &&
-                  o.attachedAvatarIds?.includes(a.id)
-              )
-            )
-            .map((a) => a.id)
+      payload.objectType === 'pose'
+        ? payload.associatedAvatarIds?.length
+          ? payload.associatedAvatarIds
+          : attachResolved
         : payload.associatedAvatarIds;
+    const pendingAttachId =
+      payload.objectType === 'pose' && !resolvedAssociatedIds?.length
+        ? attachedIds.find((id) => matchStoreAvatar(id).length === 0)
+        : undefined;
+    const pendingAttachName = pendingAttachId
+      ? activeRoom.placedObjects.find((o) => o.id === pendingAttachId)?.name || 'Avatar anexado'
+      : undefined;
     // 1. Persist to Supabase and guarantee localStorage persistence
-    await persistStoreItem(
+    const persistResult = await persistStoreItem(
       {
+        id: payload.updateExistingId,
         name: payload.name,
         objectType: payload.objectType,
         price: payload.price,
@@ -1167,12 +1210,15 @@ export const App: React.FC = () => {
         fileBlobUrl: payload.item.fileBlobUrl,
         originalItemId: payload.item.id,
         author: user?.displayName || 'Luzenne',
-        associatedAvatarIds: payload.associatedAvatarIds,
+        associatedAvatarIds: resolvedAssociatedIds,
         actions: payload.actions,
         accessoryAttachment: payload.accessoryAttachment,
         accessoryTransform: payload.accessoryTransform,
         metadata: {
           associatedAvatarNames: payload.associatedAvatarNames,
+          associatedAvatarIds: resolvedAssociatedIds,
+          pendingAvatarKey: pendingAttachId,
+          pendingAvatarName: pendingAttachName,
           actions: payload.actions,
           accessoryAttachment: payload.accessoryAttachment,
           accessoryTransform: payload.accessoryTransform,
@@ -1183,11 +1229,12 @@ export const App: React.FC = () => {
       },
       user
     );
+    if (persistResult?.error) showToast(`⚠️ ${persistResult.error}`);
 
     // 2. React state integration for accessories, poses, avatars or store customization items
     if (payload.objectType === 'acessorio') {
       const newAccessoryItem: CustomizationItem = {
-        id: `acc-pub-${payload.item.id}-${Date.now()}`,
+        id: payload.updateExistingId || `acc-pub-${payload.item.id}-${Date.now()}`,
         code: `#AC${Math.floor(100 + Math.random() * 900)}`,
         name: payload.name,
         category: 'acessorios',
@@ -1216,12 +1263,11 @@ export const App: React.FC = () => {
       if (newAccessoryItem.actions?.length) {
         setCustomizationPreviewItemId(newAccessoryItem.id);
         setCustomizationInitialTab('loja');
-        setCurrentScreen('customization');
       }
       showToast(`Acessório "${newAccessoryItem.name}" publicado com sucesso com ${newAccessoryItem.actions?.length || 0} ações configuradas!`);
     } else if (payload.objectType === 'pose') {
       const newPose: AvatarPoseConfig = {
-        id: `pose-pub-${payload.item.id}-${Date.now()}`,
+        id: payload.updateExistingId || `pose-pub-${payload.item.id}-${Date.now()}`,
         name: payload.name,
         applied: false,
         thumbnailUrl: payload.thumbnailUrl || payload.item.thumbUrl,
@@ -1236,18 +1282,34 @@ export const App: React.FC = () => {
           storeAvatars.filter((a) => resolvedAssociatedIds?.includes(a.id)).map((a) => a.name),
         rarity: payload.rarity,
         access: poseAccess,
+        sourceObjectId: sourceId,
+        pendingAvatarKey: pendingAttachId,
+        pendingAvatarName: pendingAttachName,
       };
-      setAvatarPoses((prev) => [newPose, ...prev.filter((p) => p.id !== newPose.id)]);
+      setAvatarPoses((prev) => [
+        newPose,
+        ...prev.filter((p) => p.id !== newPose.id && !(sourceId && p.sourceObjectId === sourceId)),
+      ]);
       showToast(
-        `Pose "${newPose.name}" publicada com sucesso! ${
-          newPose.associatedAvatarIds && newPose.associatedAvatarIds.length > 0
-            ? `(Vinculada a ${newPose.associatedAvatarNames?.join(', ')})`
-            : '(Pose Universal)'
-        }`
+        pendingAttachId
+          ? `Pose "${newPose.name}" publicada, mas o avatar "${pendingAttachName}" ainda não foi publicado. Ela ficará vinculada e será liberada quando o avatar for publicado.`
+          : `Pose "${newPose.name}" publicada com sucesso! ${
+              newPose.associatedAvatarIds && newPose.associatedAvatarIds.length > 0
+                ? `(Vinculada a ${newPose.associatedAvatarNames?.join(', ')})`
+                : '(Pose Universal)'
+            }`
       );
     } else if (payload.objectType === 'avatar') {
-      const avatarId = `av-pub-${payload.item.id}-${Date.now()}`;
-      const bundledPoses: AvatarPoseConfig[] = attachedPoseObjects.map((o) => {
+      const avatarId = payload.updateExistingId || `av-pub-${payload.item.id}-${Date.now()}`;
+      const shouldBundle = payload.bundlePoses !== false;
+      const isLinkedPose = (p: AvatarPoseConfig) =>
+        attachedPoseObjects.some((o) => o.id === p.sourceObjectId) ||
+        (p.pendingAvatarKey ? itemKeys.has(p.pendingAvatarKey) : false);
+      const alreadyPublishedPoses = avatarPoses.filter(isLinkedPose);
+      const poseObjsToBundle = shouldBundle
+        ? attachedPoseObjects.filter((o) => !alreadyPublishedPoses.some((p) => p.sourceObjectId === o.id))
+        : [];
+      const bundledPoses: AvatarPoseConfig[] = poseObjsToBundle.map((o) => {
         const poseInv = inventory.find((i) => i.id === o.assetId);
         return {
           id: `pose-pub-${o.id}-${Date.now()}`,
@@ -1262,6 +1324,8 @@ export const App: React.FC = () => {
           associatedAvatarNames: [payload.name],
           access: poseAccess,
           rarity: payload.rarity,
+          sourceObjectId: o.id,
+          bundledInPack: true,
         };
       });
       const newAvatar: StoreAvatar = {
@@ -1279,26 +1343,44 @@ export const App: React.FC = () => {
         originalItemId: payload.item.id,
         description: payload.description,
         actions: payload.actions || [],
-        poseIds: bundledPoses.map((p) => p.id),
+        poseIds: [...alreadyPublishedPoses.map((p) => p.id), ...bundledPoses.map((p) => p.id)],
       };
 
-      setStoreAvatars((prev) => [newAvatar, ...prev.filter((a) => a.name !== payload.name)]);
-      if (bundledPoses.length > 0) {
-        const bundledWithAvatar = bundledPoses.map((p) => ({
-          ...p,
-          associatedAvatarIds: [newAvatar.id],
-          associatedAvatarNames: [newAvatar.name],
-        }));
+      setStoreAvatars((prev) => [newAvatar, ...prev.filter((a) => a.id !== avatarId && a.name !== payload.name)]);
+      if (bundledPoses.length > 0 || alreadyPublishedPoses.length > 0) {
+        const linkIds = new Set(alreadyPublishedPoses.map((p) => p.id));
         setAvatarPoses((prev) => [
-          ...bundledWithAvatar,
-          ...prev.filter((p) => !bundledWithAvatar.some((b) => b.id === p.id)),
+          ...bundledPoses,
+          ...prev
+            .filter((p) => !bundledPoses.some((b) => b.id === p.id))
+            .map((p) =>
+              linkIds.has(p.id)
+                ? {
+                    ...p,
+                    associatedAvatarIds: [newAvatar.id],
+                    associatedAvatarNames: [newAvatar.name],
+                    pendingAvatarKey: undefined,
+                    pendingAvatarName: undefined,
+                  }
+                : p
+            ),
         ]);
-        showToast(`Avatar "${newAvatar.name}" publicado com ${bundledPoses.length} pose(s) anexada(s)!`);
+      }
+      const notPublishedCount = attachedPoseObjects.length - bundledPoses.length - alreadyPublishedPoses.length;
+      if (bundledPoses.length > 0) {
+        showToast(
+          `Combo publicado: avatar "${newAvatar.name}" + ${bundledPoses.length} pose(s)${
+            alreadyPublishedPoses.length ? ` (+${alreadyPublishedPoses.length} já publicada(s) vinculada(s))` : ''
+          }!`
+        );
+      } else if (alreadyPublishedPoses.length > 0) {
+        showToast(`Avatar "${newAvatar.name}" publicado e vinculado a ${alreadyPublishedPoses.length} pose(s) já publicada(s).`);
+      } else if (notPublishedCount > 0) {
+        showToast(`Avatar "${newAvatar.name}" publicado sem poses. ${notPublishedCount} pose(s) anexada(s) não foram publicadas.`);
       }
       if (newAvatar.actions?.length) {
         setCustomizationPreviewAvatarId(newAvatar.id);
         setCustomizationInitialTab('loja');
-        setCurrentScreen('customization');
       }
     } else if (payload.objectType === 'sala') {
       const roomMatch = rooms.find(
@@ -1313,7 +1395,7 @@ export const App: React.FC = () => {
       }
     } else {
       const newCustomItem: CustomizationItem = {
-        id: `item-pub-${payload.item.id}-${Date.now()}`,
+        id: payload.updateExistingId || `item-pub-${payload.item.id}-${Date.now()}`,
         code: `#P${Math.floor(100 + Math.random() * 900)}`,
         name: payload.name,
         category: payload.objectType === 'moveis' ? 'outros' : 'publicados',
@@ -1337,7 +1419,6 @@ export const App: React.FC = () => {
       if (newCustomItem.actions?.length) {
         setCustomizationPreviewItemId(newCustomItem.id);
         setCustomizationInitialTab('loja');
-        setCurrentScreen('customization');
       }
     }
 
@@ -1740,6 +1821,11 @@ export const App: React.FC = () => {
   };
 
   // Upload handler (supports real GLB blob URLs and direct placement with Gizmo)
+  const placedKindFor = (t: string): 'avatar' | 'acessorio' | 'pose' | 'movel' => {
+    const l = (t || '').toLowerCase();
+    return l === 'avatar' ? 'avatar' : l === 'acessorio' ? 'acessorio' : l === 'pose' ? 'pose' : 'movel';
+  };
+
   const handleUploadSuccess = (
     item: InventoryItem,
     autoInsertPoint?: [number, number, number] | null
@@ -1804,16 +1890,18 @@ export const App: React.FC = () => {
     }
 
     // 2. If user uploads an 'Avatar' or 'Item'
-    if (autoInsertPoint && (item.type === 'Item' || item.type === 'Avatar')) {
+    if (autoInsertPoint) {
       const targetPoint = autoInsertPoint;
       const isAvatarType = item.type === 'Avatar';
-      const newObjId = `obj-${isAvatarType ? 'avatar' : 'item'}-${Date.now()}`;
+      const placedKind = placedKindFor(item.type);
+      const newObjId = `obj-${isAvatarType ? 'avatar' : placedKind}-${Date.now()}`;
       const newPlacedObject: PlacedObject = {
         id: newObjId,
         assetId: item.id,
         name: item.displayName,
-        type: isAvatarType ? 'avatar' : 'movel',
+        type: placedKind,
         isAvatar: isAvatarType,
+        ...(placedKind === 'pose' ? { isPose: true } : {}),
         position: [targetPoint[0], 0.0, targetPoint[2]] as [number, number, number],
         rotation: [0, 0, 0] as [number, number, number],
         scale: [1, 1, 1] as [number, number, number],
@@ -1883,13 +1971,15 @@ export const App: React.FC = () => {
     }
 
     const isAvatarType = asset.type === 'Avatar';
-    const newObjId = `obj-${isAvatarType ? 'avatar' : 'item'}-${Date.now()}`;
+    const placedKind = placedKindFor(asset.type);
+    const newObjId = `obj-${isAvatarType ? 'avatar' : placedKind}-${Date.now()}`;
     const newPlacedObject: PlacedObject = {
       id: newObjId,
       assetId: asset.id,
       name: asset.displayName,
-      type: isAvatarType ? 'avatar' : 'movel',
+      type: placedKind,
       isAvatar: isAvatarType,
+      ...(placedKind === 'pose' ? { isPose: true } : {}),
       position: spawnPoint,
       rotation: [0, 0, 0] as [number, number, number],
       scale: [1, 1, 1] as [number, number, number],
@@ -2653,9 +2743,43 @@ export const App: React.FC = () => {
             const realAvatars = avatars.filter(
               (a) => a.isUserPublished || Boolean(a.fileBlobUrl) || Boolean(a.originalItemId) || !a.id.startsWith('av-')
             );
-            if (realItems.length > 0) setCustomizationItems(realItems);
-            if (realAvatars.length > 0) setStoreAvatars(realAvatars);
-            if (posesList.length > 0) setAvatarPoses(posesList);
+            const isMine = (author?: string) => Boolean(author && user?.displayName && author === user.displayName);
+            if (realItems.length > 0) {
+              setCustomizationItems((prev) =>
+                realItems.map((r) => {
+                  const local = prev.find((l) => l.id === r.id);
+                  return {
+                    ...r,
+                    owned: Boolean(local?.owned) || isMine(r.author),
+                    equipped: local ? local.equipped : r.equipped,
+                  };
+                })
+              );
+            }
+            if (realAvatars.length > 0) {
+              setStoreAvatars((prev) =>
+                realAvatars.map((r) => {
+                  const local = prev.find((l) => l.id === r.id);
+                  return {
+                    ...r,
+                    owned: Boolean(local?.owned || local?.applied) || isMine(r.author),
+                    applied: Boolean(local?.applied),
+                  };
+                })
+              );
+            }
+            if (posesList.length > 0) {
+              setAvatarPoses((prev) => {
+                const merged = prev.map((local) => {
+                  const remote = posesList.find((r) => r.id === local.id || r.name === local.name);
+                  return remote ? { ...remote, ...local } : local;
+                });
+                const extra = posesList
+                  .filter((r) => !prev.some((l) => l.id === r.id || l.name === r.name))
+                  .map((r) => ({ ...r, owned: isMine(r.author) }));
+                return [...merged, ...extra];
+              });
+            }
           }}
           roomAccessSlots={roomAccessSlots}
           onUpdateRoomAccessSlots={handleUpdateRoomAccessSlots}
@@ -2767,6 +2891,7 @@ export const App: React.FC = () => {
             storeAvatars={storeAvatars}
             onTogglePoseAvatarAttachment={handleTogglePoseAvatarAttachment}
             onPublishObject={handlePublishPlacedObject}
+            onPublishRoom={handlePublishRoom}
             sceneAssetBlobUrl={activeRoom.sceneAssetBlobUrl}
             sceneAssetName={
               activeRoom.sceneAssetBlobUrl
@@ -2990,6 +3115,39 @@ export const App: React.FC = () => {
     item={publishingItem}
     user={user}
     availableAvatars={storeAvatars}
+    attachInfo={(() => {
+      if (!publishingItem) return undefined;
+      const sid = publishingItem.sourceObjectId;
+      const objs = activeRoom.placedObjects.filter((o) =>
+        sid ? o.id === sid : o.assetId === publishingItem.id || o.assetId === publishingItem.assetId
+      );
+      const keys = new Set<string>(objs.map((o) => o.id));
+      keys.add(publishingItem.id);
+      const poses = activeRoom.placedObjects
+        .filter((o) => (o.type === 'pose' || o.isPose) && o.attachedAvatarIds?.some((id) => keys.has(id)))
+        .map((o) => ({ id: o.id, name: o.name, published: avatarPoses.some((p) => p.sourceObjectId === o.id) }));
+      const attachedIds = Array.from(new Set(objs.flatMap((o) => o.attachedAvatarIds || [])));
+      const unpublishedAvatars = attachedIds
+        .filter((id) => !storeAvatars.some((a) => a.id === id || a.originalItemId === id || a.assetId === id))
+        .map((id) => activeRoom.placedObjects.find((o) => o.id === id)?.name)
+        .filter((n): n is string => Boolean(n));
+      return {
+        poses,
+        unpublishedAvatars,
+        existing: (() => {
+          const it = publishingItem;
+          const av = storeAvatars.find((a) => a.isUserPublished && a.originalItemId === it.id);
+          if (av) return { id: av.id, name: av.name, kind: 'avatar' as const };
+          const po = sid
+            ? avatarPoses.find((p) => p.isPublishedByCreator && p.sourceObjectId === sid)
+            : undefined;
+          if (po) return { id: po.id, name: po.name, kind: 'pose' as const };
+          const ci = customizationItems.find((i) => i.isPublishedByCreator && i.originalItemId === it.id);
+          if (ci) return { id: ci.id, name: ci.name, kind: 'item' as const };
+          return undefined;
+        })(),
+      };
+    })()}
     onConfirmPublish={handleConfirmPublishItem}
     onGoToStore={() => {
       setIsPublishItemModalOpen(false);
@@ -3008,6 +3166,18 @@ export const App: React.FC = () => {
     customizationItems={customizationItems}
     avatarPoses={avatarPoses}
     onShowToast={showToast}
+    onDeleteItem={(id, type) => {
+      if (type === 'avatar') setStoreAvatars((prev) => prev.filter((a) => a.id !== id));
+      else if (type === 'pose') setAvatarPoses((prev) => prev.filter((p) => p.id !== id));
+      else setCustomizationItems((prev) => prev.filter((i) => i.id !== id));
+    }}
+    onUpdatePublishedItem={(type, id, patch) => {
+      const apply = <T extends { id: string }>(list: T[]) =>
+        list.map((x) => (x.id === id ? { ...x, ...patch } : x));
+      if (type === 'avatar') setStoreAvatars((prev) => apply(prev));
+      else if (type === 'pose') setAvatarPoses((prev) => apply(prev));
+      else setCustomizationItems((prev) => apply(prev));
+    }}
   />
 
   {/* Modal de Sinalização e Visual dos Spots */}

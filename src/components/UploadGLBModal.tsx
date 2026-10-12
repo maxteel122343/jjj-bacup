@@ -29,7 +29,7 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [thumbUrl, setThumbUrl] = useState('');
-  const [selectedType, setSelectedType] = useState<'Sala' | 'Avatar' | 'Item'>('Item');
+  const [selectedType, setSelectedType] = useState<'Sala' | 'Avatar' | 'Item' | 'Movel' | 'Acessorio' | 'Pose'>('Item');
   const [uploadedItem, setUploadedItem] = useState<InventoryItem | null>(null);
 
   // Direct Upload State
@@ -161,6 +161,12 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
         ? 'sala'
         : newItem.type === 'Avatar'
         ? 'avatar'
+        : newItem.type === 'Acessorio'
+        ? 'acessorio'
+        : newItem.type === 'Movel'
+        ? 'moveis'
+        : newItem.type === 'Pose'
+        ? 'pose'
         : 'item'
     );
   };
@@ -656,7 +662,16 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                     Tipo do produto 3D
                   </label>
                   <div className="grid grid-cols-3 gap-2">
-                    {(['Sala', 'Avatar', 'Item'] as const).map((t) => (
+                    {(
+                      [
+                        ['Sala', 'Sala'],
+                        ['Avatar', 'Avatar'],
+                        ['Item', 'Item'],
+                        ['Movel', 'Móvel'],
+                        ['Acessorio', 'Acessório'],
+                        ['Pose', 'Pose'],
+                      ] as const
+                    ).map(([t, label]) => (
                       <button
                         key={t}
                         type="button"
@@ -667,7 +682,7 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                             : 'border-[#d4af37]/40 text-[#e8d5b5]/80 hover:border-[#ffd700] bg-[#161820]'
                         }`}
                       >
-                        {t}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -677,7 +692,13 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                       ? 'Sala: cenário 3D da room (paredes, arquitetura e piso).'
                       : selectedType === 'Avatar'
                       ? 'Avatar: modelo usado para o visitante interagir nos spots.'
-                      : 'Item: móvel ou objeto inserível em qualquer ponto clicado na cena.'}
+                      : selectedType === 'Movel'
+                      ? 'Móvel: mobília ou decoração inserível em qualquer ponto da cena.'
+                      : selectedType === 'Acessorio'
+                      ? 'Acessório: peça que acompanha ou é vestida pelo avatar (chapéu, asas, pet).'
+                      : selectedType === 'Pose'
+                      ? 'Pose: pose/animação que pode ser anexada a um avatar.'
+                      : 'Item: objeto inserível em qualquer ponto clicado na cena.'}
                   </p>
                 </div>
               </div>

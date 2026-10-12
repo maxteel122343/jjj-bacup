@@ -457,6 +457,88 @@ export const ObjectActionModal: React.FC<ObjectActionModalProps> = ({
                 </div>
               </div>
 
+              {/* Direção por ângulo */}
+              {(() => {
+                const dist = Math.hypot(deltaPos[0], deltaPos[1], deltaPos[2]);
+                const pitchDeg = dist > 0 ? (Math.asin(deltaPos[1] / dist) * 180) / Math.PI : 0;
+                const yawDeg = (Math.atan2(deltaPos[0], deltaPos[2]) * 180) / Math.PI;
+                const round = (n: number) => Math.round(n * 100) / 100;
+                const applyPolar = (d: number, pitch: number, yaw: number) => {
+                  const p = (pitch * Math.PI) / 180;
+                  const y = (yaw * Math.PI) / 180;
+                  setDeltaPos([
+                    round(d * Math.cos(p) * Math.sin(y)),
+                    round(d * Math.sin(p)),
+                    round(d * Math.cos(p) * Math.cos(y)),
+                  ]);
+                };
+                const fields: { label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }[] = [
+                  { label: 'Ângulo cima/baixo', value: round(pitchDeg), min: -90, max: 90, step: 1, unit: '°', onChange: (v) => applyPolar(dist, v, yawDeg) },
+                  { label: 'Ângulo lado', value: round(yawDeg), min: -180, max: 180, step: 1, unit: '°', onChange: (v) => applyPolar(dist, pitchDeg, v) },
+                  { label: 'Distância', value: round(dist), min: 0, max: 20, step: 0.1, unit: 'm', onChange: (v) => applyPolar(v, pitchDeg, yawDeg) },
+                ];
+                return (
+                  <div className="pt-2">
+                    <label className="text-[11px] font-bold text-cyan-300 block mb-1">
+                      Mover em ângulo (calcula o deslocamento X/Y/Z):
+                    </label>
+                    <div className="space-y-1.5">
+                      {fields.map((f) => (
+                        <div key={f.label} className="flex items-center gap-2">
+                          <span className="w-28 text-[10px] text-zinc-400">{f.label}</span>
+                          <input
+                            type="range"
+                            min={f.min}
+                            max={f.max}
+                            step={f.step}
+                            value={f.value}
+                            onChange={(e) => f.onChange(parseFloat(e.target.value) || 0)}
+                            className="flex-1 accent-cyan-400"
+                          />
+                          <input
+                            type="number"
+                            step={f.step}
+                            value={f.value}
+                            onChange={(e) => f.onChange(parseFloat(e.target.value) || 0)}
+                            className="w-16 rounded border border-cyan-400/40 bg-[#161820] px-1.5 py-1 text-right text-xs font-bold text-cyan-300"
+                          />
+                          <span className="w-4 text-[10px] text-zinc-400">{f.unit}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Rotação em graus */}
+              <div className="pt-2">
+                <label className="text-[11px] font-bold text-cyan-300 block mb-1">
+                  Rotação durante a action (graus):
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ['Inclinar cima/baixo (X)', 0],
+                    ['Girar lado (Y)', 1],
+                    ['Tombar (Z)', 2],
+                  ] as const).map(([label, idx]) => (
+                    <div key={idx}>
+                      <span className="text-[10px] text-zinc-400 block">{label}:</span>
+                      <input
+                        type="number"
+                        step="1"
+                        value={deltaRot[idx]}
+                        onChange={(e) => {
+                          const next: [number, number, number] = [...deltaRot];
+                          next[idx] = parseFloat(e.target.value) || 0;
+                          setDeltaRot(next);
+                        }}
+                        className="w-full bg-[#161820] border border-[#d4af37]/40 rounded-lg px-2 py-1.5 text-xs text-[#ffd700]"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Speed & Loop */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <div>

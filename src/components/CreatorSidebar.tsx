@@ -69,6 +69,7 @@ interface CreatorSidebarProps {
   storeAvatars?: { id: string; name: string; thumb: string }[];
   onTogglePoseAvatarAttachment?: (poseObjectId: string, avatarId: string) => void;
   onPublishObject?: (objectId: string) => void;
+  onPublishRoom?: () => void;
   onUpdateObjectActions?: (objectId: string, actions: ObjectAction[]) => void;
   onToggleTestObjectAction?: (objectId: string, actionId: string | null) => void;
   onPreviewObjectAction?: (objectId: string, motion: SpotMotionConfig | null) => void;
@@ -144,7 +145,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   storeAvatars: sidebarStoreAvatars = [],
   onTogglePoseAvatarAttachment,
   onPublishObject,
-  onUpdateObjectActions,
+  onPublishRoom,  onUpdateObjectActions,
   onToggleTestObjectAction,
   onPreviewObjectAction,
   onPauseTestObjectAction,
@@ -240,6 +241,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   // Action creation / edit states
   const [actionTargetId, setActionTargetId] = useState<string | null>(null);
   const [isCreatingAction, setIsCreatingAction] = useState(false);
+  const [attachSourceFilter, setAttachSourceFilter] = useState<'all' | 'Cenário' | 'Loja' | 'Itens'>('all');
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [actionNameInput, setActionNameInput] = useState('');
   const [actionTrajInput, setActionTrajInput] = useState<MotionCurveTrajectory>('linear');
@@ -1417,18 +1419,35 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         </span>
                       </div>
                     </div>
-                    {onRemoveScenario && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemoveScenario();
-                        }}
-                        className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/50 transition-colors cursor-pointer text-xs"
-                        title="Remover este cenário 3D da sala"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {(onRemoveScenario || onPublishRoom) && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {onPublishRoom && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPublishRoom();
+                            }}
+                            className="px-2 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                            title="Publicar esta sala na vitrine"
+                          >
+                            Publicar sala
+                          </button>
+                        )}
+                        {onRemoveScenario && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveScenario();
+                            }}
+                            className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/50 transition-colors cursor-pointer text-xs"
+                            title="Remover este cenário 3D da sala"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1714,15 +1733,38 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                       const editorAvatars = placedObjects.filter(
                         (o) => o.id !== obj.id && (o.type === 'avatar' || o.isAvatar)
                       );
-                      const candidates = [
-                        ...editorAvatars.map((o) => ({ id: o.id, name: o.name, thumb: '', source: 'Editor' })),
-                        ...sidebarStoreAvatars.map((a) => ({ id: a.id, name: a.name, thumb: a.thumb, source: 'Loja' })),
+                      const allCandidates = [
+                        ...editorAvatars.map((o) => ({ id: o.id, name: o.name, thumb: '', source: 'Cenário' as const })),
+                        ...sidebarStoreAvatars.map((a) => ({ id: a.id, name: a.name, thumb: a.thumb, source: 'Loja' as const })),
+                        ...inventory
+                          .filter((i) => String(i.type).toLowerCase() === 'avatar')
+                          .map((i) => ({ id: i.id, name: i.displayName || i.name || i.fileName, thumb: i.thumbUrl, source: 'Itens' as const })),
                       ];
+                      const candidates =
+                        attachSourceFilter === 'all'
+                          ? allCandidates
+                          : allCandidates.filter((c) => c.source === attachSourceFilter);
                       return (
                         <div className="col-span-2 border-t border-[#d4af37]/20 pt-1 space-y-1" onClick={(e) => e.stopPropagation()}>
                           <span className="text-[11px] uppercase tracking-wider text-[#d4af37]/80">
                             Anexar a avatar ({obj.attachedAvatarIds?.length || 0})
                           </span>
+                          <div className="flex gap-1">
+                            {(['all', 'Cenário', 'Loja', 'Itens'] as const).map((f) => (
+                              <button
+                                key={f}
+                                type="button"
+                                onClick={() => setAttachSourceFilter(f)}
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-bold border cursor-pointer ${
+                                  attachSourceFilter === f
+                                    ? 'bg-cyan-400 text-black border-cyan-300'
+                                    : 'bg-black/40 text-zinc-300 border-zinc-600 hover:text-white'
+                                }`}
+                              >
+                                {f === 'all' ? `Todos (${allCandidates.length})` : `${f} (${allCandidates.filter((c) => c.source === f).length})`}
+                              </button>
+                            ))}
+                          </div>
                           {candidates.length === 0 ? (
                             <p className="text-[10px] text-zinc-400">Nenhum avatar disponível. Defina um objeto como Avatar.</p>
                           ) : (

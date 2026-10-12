@@ -1545,9 +1545,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                 customAvatarMesh.position.set(targetX, targetY, targetZ);
                 const spotRotRad = THREE.MathUtils.degToRad(spot.rotation);
                 customAvatarMesh.rotation.set(
-                  effectiveCustomAvatarObj.rotation[0] + currentMotion.rotX,
+                  THREE.MathUtils.degToRad(spot.rotationPitch || 0) + currentMotion.rotX,
                   spotRotRad + currentMotion.rotY,
-                  effectiveCustomAvatarObj.rotation[2] + currentMotion.rotZ
+                  currentMotion.rotZ
                 );
                 customAvatarMesh.scale.set(
                   effectiveCustomAvatarObj.scale[0] * currentMotion.scale,
@@ -1583,7 +1583,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
             if (customAvatarMesh && effectiveCustomAvatarId) {
               movedObjectIds.add(effectiveCustomAvatarId);
               customAvatarMesh.position.copy(restPos);
-              customAvatarMesh.rotation.set(spotRotX, spotRotY, customAvatarMesh.rotation.z);
+              // z reset to 0: keeping the previous z leaked action roll and left the avatar upside down
+              customAvatarMesh.rotation.set(spotRotX, spotRotY, 0);
             } else if (avatarGroupRef.current) {
               avatarGroupRef.current.position.copy(restPos);
               avatarGroupRef.current.rotation.y = spotRotY;
@@ -3552,7 +3553,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
               <div
                 key={spot.id}
                 style={{ left: `${screenX}px`, top: `${screenY}px`, zIndex: effectiveZIndex }}
-                className={`absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group ${
+                className={`absolute transform -translate-x-1/2 -translate-y-full flex flex-col-reverse items-center group ${
                   lockSpots || (isSelected && !isAvatarMode)
                     ? `pointer-events-none ${lockSpots ? 'opacity-60' : ''}`
                     : 'pointer-events-auto cursor-pointer'
@@ -3569,6 +3570,13 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                 }}
                 onMouseDown={(e) => handleSpotDragMouseDown(spot.id, e)}
               >
+                {indicatorStyle === 'pillar' && (
+                  <div
+                    style={{ transform: `scale(${arrowScale})`, transformOrigin: 'bottom' }}
+                    className="w-2.5 h-14 rounded-t-full bg-gradient-to-t from-[#ffd700]/80 via-[#ffd700]/30 to-transparent shadow-[0_0_14px_rgba(255,215,0,0.7)] animate-pulse"
+                    title="Pilar de luz do Spot"
+                  />
+                )}
                 {/* 1. Downward Indicative Arrow (Seta indicadora) */}
                 {showArrow && (
                   <div
@@ -5591,7 +5599,8 @@ function updateMetricTextSprite(sprite: THREE.Sprite, text: string, bgColor = '#
   const texture = new THREE.CanvasTexture(canvas);
   mat.map = texture;
   mat.needsUpdate = true;
-  sprite.scale.set(0.95, 0.16, 1);
+  sprite.scale.set(0.5, 0.085, 1);
+  mat.opacity = 0.7;
 }
 
 function updateSpatialIndicatorGroup(grp: THREE.Group, x: number, y: number, z: number): void {
@@ -5625,7 +5634,7 @@ function updateSpatialIndicatorGroup(grp: THREE.Group, x: number, y: number, z: 
   if (sprite) {
     const label = `Pos: X:${x.toFixed(2)}m | Y:${y.toFixed(2)}m | Z:${z.toFixed(2)}m`;
     updateMetricTextSprite(sprite, label, '#0f172a', '#4ade80');
-    sprite.position.set(x, Math.max(0.35, y + 0.35), z);
+    sprite.position.set(x, Math.max(0.6, y + 0.9), z);
   }
 
   // 4: Axis X Guideline (Red line along floor X axis from (0, 0.005, z) to (x, 0.005, z))

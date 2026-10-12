@@ -47,6 +47,11 @@ interface MyPublicationsModalProps {
   onShowToast: (msg: string) => void;
   onDeleteRoom?: (roomId: string) => void;
   onDeleteItem?: (itemId: string, type: 'avatar' | 'pose' | 'item') => void;
+  onUpdatePublishedItem?: (
+    type: 'avatar' | 'item' | 'pose',
+    id: string,
+    patch: { name: string; price: number; rarity: 'COMUM' | 'RARO' | 'ÉLITE'; description: string }
+  ) => void;
 }
 
 export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
@@ -63,6 +68,7 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
   onShowToast,
   onDeleteRoom,
   onDeleteItem,
+  onUpdatePublishedItem,
 }) => {
   const [activeTab, setActiveTab] = useState<'rooms' | 'items'>('rooms');
   const [publishedRooms, setPublishedRooms] = useState<any[]>([]);
@@ -136,6 +142,12 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
         actions: editActions,
       };
       await persistStoreItem(payload, user);
+      onUpdatePublishedItem?.(editingItemData.type, it.id, {
+        name: payload.name,
+        price: payload.price,
+        rarity: payload.rarity,
+        description: payload.description,
+      });
       onShowToast(`Item "${editName}" atualizado com sucesso na Vitrine!`);
       setEditingItemData(null);
       onRefreshData?.();
@@ -244,6 +256,7 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
   const handleDeleteItem = async (itemId: string, type: 'avatar' | 'pose' | 'item') => {
     const res = await deletePublishedItem(itemId, type, user);
     if (res.success) {
+      onDeleteItem?.(itemId, type);
       onShowToast('Item removido com sucesso.');
       setItemToDelete(null);
       onRefreshData?.();
@@ -480,14 +493,24 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
                       </div>
                       <div className="flex items-center justify-between pt-2 border-t border-[#d4af37]/20 text-xs">
                         <span className="text-[10px] text-[#e8d5b5]/60">Por {av.author || 'Luzenne'}</span>
-                        <button
-                          type="button"
-                          onClick={() => setItemToDelete({ id: av.id, name: av.name, type: 'avatar' })}
-                          className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
-                          title="Remover avatar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingItemData({ item: av, type: 'avatar' })}
+                            className="p-1 rounded text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                            title="Editar e republicar"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete({ id: av.id, name: av.name, type: 'avatar' })}
+                            className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
+                            title="Remover avatar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -515,14 +538,24 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
                       </div>
                       <div className="flex items-center justify-between pt-2 border-t border-[#d4af37]/20 text-xs">
                         <span className="text-[10px] text-[#e8d5b5]/60">Código: {item.code}</span>
-                        <button
-                          type="button"
-                          onClick={() => setItemToDelete({ id: item.id, name: item.name, type: 'item' })}
-                          className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
-                          title="Remover item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingItemData({ item, type: 'item' })}
+                            className="p-1 rounded text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                            title="Editar e republicar"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete({ id: item.id, name: item.name, type: 'item' })}
+                            className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
+                            title="Remover item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -546,14 +579,24 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
                       </div>
                       <div className="flex items-center justify-between pt-2 border-t border-[#d4af37]/20 text-xs">
                         <span className="text-[10px] text-[#e8d5b5]/60">Pose de Avatar</span>
-                        <button
-                          type="button"
-                          onClick={() => setItemToDelete({ id: pose.id, name: pose.name, type: 'pose' })}
-                          className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
-                          title="Remover pose"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingItemData({ item: pose, type: 'pose' })}
+                            className="p-1 rounded text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                            title="Editar e republicar"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete({ id: pose.id, name: pose.name, type: 'pose' })}
+                            className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/60 transition-colors"
+                            title="Remover pose"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -616,6 +659,75 @@ export const MyPublicationsModal: React.FC<MyPublicationsModalProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-bold text-white shadow-md"
                 >
                   Sim, Remover
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editingItemData && (
+          <div className="absolute inset-0 z-20 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#171924] border border-[#d4af37]/60 rounded-xl p-5 max-w-md w-full space-y-3 shadow-2xl max-h-[85vh] overflow-y-auto">
+              <h3 className="text-sm font-bold text-[#ffd700]">Editar e republicar</h3>
+              <label className="block text-[11px] text-zinc-300">
+                Nome
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="mt-1 w-full px-2 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-[11px] text-zinc-300">
+                  Preço (moedas)
+                  <input
+                    type="number"
+                    min={0}
+                    value={editPrice}
+                    onChange={(e) => setEditPrice(Math.max(0, Number(e.target.value) || 0))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
+                  />
+                </label>
+                <label className="block text-[11px] text-zinc-300">
+                  Raridade
+                  <select
+                    value={editRarity}
+                    onChange={(e) => setEditRarity(e.target.value as 'COMUM' | 'RARO' | 'ÉLITE')}
+                    className="mt-1 w-full px-2 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
+                  >
+                    <option value="COMUM">COMUM</option>
+                    <option value="RARO">RARO</option>
+                    <option value="ÉLITE">ÉLITE</option>
+                  </select>
+                </label>
+              </div>
+              <label className="block text-[11px] text-zinc-300">
+                Descrição
+                <textarea
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full px-2 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
+                />
+              </label>
+              <p className="text-[10px] text-zinc-500">
+                Para trocar o modelo 3D ou configurar o objeto no cenário, edite no editor e publique de novo.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingItemData(null)}
+                  className="px-3 py-1.5 rounded-lg border border-zinc-600 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={handleSaveEditedItem}
+                  className="px-3 py-1.5 rounded-lg bg-[#d4af37] hover:bg-[#ffd700] text-xs font-bold text-black cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingEdit ? 'Salvando…' : 'Salvar e republicar'}
                 </button>
               </div>
             </div>

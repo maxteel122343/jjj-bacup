@@ -165,11 +165,36 @@ export async function persistStoreItem(
       is_active: true,
     };
 
-    if (payload.id && !payload.id.startsWith('pub-')) {
-      // It has a database UUID or id: update directly
-      await supabase.from('store_items').update(itemData).eq('id', payload.id);
-    } else {
-      await supabase.from('store_items').insert([itemData]);
+    const writeRow = async (row: any) => {
+      if (payload.id && !payload.id.startsWith('pub-')) {
+        const { data: updated, error: upErr } = await supabase
+          .from('store_items')
+          .update(row)
+          .eq('id', payload.id)
+          .select('id');
+        if (!upErr && updated && updated.length > 0) return null;
+      }
+      const { error: insErr } = await supabase.from('store_items').insert([row]);
+      return insErr;
+    };
+
+    let writeErr = await writeRow(itemData);
+    // Chaves estrangeiras (user_id/asset_id) inexistentes derrubavam a publicação: reenvia sem a coluna problemática
+    let attemptRow = { ...itemData };
+    for (let i = 0; i < 3 && writeErr && writeErr.code === '23503'; i++) {
+      const msg = `${writeErr.message || ''} ${writeErr.details || ''}`;
+      if (/user_id/.test(msg) && attemptRow.user_id) attemptRow = { ...attemptRow, user_id: null };
+      else if (/asset_id/.test(msg) && attemptRow.asset_id) attemptRow = { ...attemptRow, asset_id: null };
+      else break;
+      writeErr = await writeRow(attemptRow);
+    }
+    if (writeErr) {
+      console.error('Supabase store_items erro ao publicar:', writeErr);
+      return {
+        success: true,
+        id: generatedId,
+        error: `Salvo só neste navegador (banco recusou: ${writeErr.message})`,
+      };
     }
   } catch (err: any) {
     console.warn('Supabase store_items query fallback:', err?.message);
@@ -454,6 +479,9 @@ export async function fetchPublicStoreItems(): Promise<{
             isPublishedByCreator: true,
             associatedAvatarIds: row.metadata?.associatedAvatarIds || [],
             associatedAvatarNames: row.metadata?.associatedAvatarNames || [],
+            access: row.metadata?.poseAccess || undefined,
+            pendingAvatarKey: row.metadata?.pendingAvatarKey || undefined,
+            pendingAvatarName: row.metadata?.pendingAvatarName || undefined,
             rarity: row.rarity || 'COMUM',
           });
         } else {

@@ -117,7 +117,7 @@ export interface InventoryItem {
   name?: string;
   thumbUrl: string;
   thumbnailUrl?: string;
-  type: 'Sala' | 'Avatar' | 'Item' | 'Acessorio' | 'sala' | 'avatar' | 'item' | 'acessorio' | 'cenario' | 'movel' | 'objeto' | 'pose';
+  type: 'Sala' | 'Avatar' | 'Item' | 'Acessorio' | 'Movel' | 'Pose' | 'sala' | 'avatar' | 'item' | 'acessorio' | 'cenario' | 'movel' | 'objeto' | 'pose';
   createdAt?: string;
   isScenario?: boolean;
   isAccessory?: boolean;
@@ -189,7 +189,7 @@ export interface ProjectExportPackage {
 }
 
 // Spot Visualization Configurations (white pulse + point, yellow, or arrow only, with customizable sizes)
-export type SpotVisualIndicatorStyle = 'white_pulse' | 'yellow_gold' | 'arrow_only' | 'full';
+export type SpotVisualIndicatorStyle = 'white_pulse' | 'yellow_gold' | 'arrow_only' | 'full' | 'pillar';
 
 export interface SpotVisualConfig {
   indicatorStyle: SpotVisualIndicatorStyle;
@@ -383,6 +383,11 @@ export interface AvatarPoseConfig {
   // 'free': can be acquired on its own.
   access?: PoseAccess;
   rarity?: 'COMUM' | 'RARO' | 'ÉLITE';
+  sourceObjectId?: string;
+  // Attached to an editor avatar that has not been published yet
+  pendingAvatarKey?: string;
+  pendingAvatarName?: string;
+  bundledInPack?: boolean;
 }
 
 export interface RoomAccessSlot {

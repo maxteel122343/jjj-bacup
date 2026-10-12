@@ -521,29 +521,29 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
         let posY = (cfg.deltaPosition?.[1] || 0) * factor;
         let posZ = (cfg.deltaPosition?.[2] || 0) * factor;
 
+        // Mirrors the editor's motion math (CreatorEditorCanvas3D) so store preview == editor test
         const traj = cfg.curveTrajectory || 'linear';
         if (traj === 'arc') {
-          const h = cfg.curveHeight !== undefined ? cfg.curveHeight : 1.2;
+          const h = cfg.curveHeight !== undefined ? cfg.curveHeight : 2.0;
           posY += 4 * h * factor * (1 - factor);
         } else if (traj === 'circle_turn') {
           const turnDeg = cfg.turnAngle !== undefined ? cfg.turnAngle : 360;
           const rad = THREE.MathUtils.degToRad(turnDeg * factor);
-          const radius = cfg.curveRadius !== undefined ? cfg.curveRadius : 1.2;
-          posX = radius * Math.sin(rad);
-          posZ = radius * (1 - Math.cos(rad));
+          const radius = cfg.curveRadius !== undefined ? cfg.curveRadius : 2.0;
+          posX += radius * Math.sin(rad);
+          posZ += radius * (1 - Math.cos(rad));
         } else if (traj === 'spiral') {
           const turnDeg = cfg.turnAngle !== undefined ? cfg.turnAngle : 360;
           const rad = THREE.MathUtils.degToRad(turnDeg * factor);
-          const radius = cfg.curveRadius !== undefined ? cfg.curveRadius : 0.8;
-          posX = radius * Math.cos(rad);
-          posZ = radius * Math.sin(rad);
-          posY += factor * 0.5;
+          const radius = cfg.curveRadius !== undefined ? cfg.curveRadius : 1.5;
+          posX += radius * Math.cos(rad) - radius;
+          posZ += radius * Math.sin(rad);
         } else if (traj === 'wave') {
-          posY += Math.sin(factor * Math.PI * 4) * 0.25;
+          posY += Math.sin(factor * Math.PI * 4) * 0.35;
         }
 
         const rx = THREE.MathUtils.degToRad((cfg.deltaRotation?.[0] || 0) * factor);
-        const ry = THREE.MathUtils.degToRad((cfg.turnAngle || cfg.deltaRotation?.[1] || 0) * factor);
+        const ry = THREE.MathUtils.degToRad((cfg.deltaRotation?.[1] || 0) * factor);
         const rz = THREE.MathUtils.degToRad((cfg.deltaRotation?.[2] || 0) * factor);
 
         const scaleVal = cfg.scaleFactor !== undefined
@@ -745,7 +745,8 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
         selectedItemToInspect.fileBlobUrl
       );
 
-      if (selectedItemToInspect.isMissingAsset || (!itemAssetUuid && !selectedItemToInspect.fileBlobUrl)) {
+      const hasAnyLocalRef = !!(selectedItemToInspect.fileBlobUrl || selectedItemToInspect.originalItemId || selectedItemToInspect.id);
+      if (!itemAssetUuid && !hasAnyLocalRef) {
         const missingMesh = createMissingAssetMesh(selectedItemToInspect.name);
         alignObjectBottomToY(missingMesh, PEDESTAL_SURFACE_Y + PEDESTAL_OBJECT_CLEARANCE);
         missingMesh.userData.baseTransform = {

@@ -6,8 +6,8 @@ export const INITIAL_CUSTOMIZATION_ITEMS: CustomizationItem[] = [];
 // Apenas avatares reais publicados e com modelos válidos
 export const INITIAL_STORE_AVATARS: StoreAvatar[] = [];
 
-// Poses reais publicadas e acessíveis nas salas
-export const INITIAL_POSES: AvatarPoseConfig[] = [
+// Poses de exemplo antigas (fotos de banco de imagens): não são mais exibidas
+const LEGACY_SEED_POSES: AvatarPoseConfig[] = [
   {
     id: 'pose-pe',
     name: 'Em pé',
@@ -69,3 +69,8 @@ export const INITIAL_POSES: AvatarPoseConfig[] = [
     rarity: 'COMUM',
   },
 ];
+
+export const LEGACY_SEED_POSE_IDS = new Set(LEGACY_SEED_POSES.map((p) => p.id));
+
+// Apenas poses realmente criadas/publicadas pelos usuários
+export const INITIAL_POSES: AvatarPoseConfig[] = [];

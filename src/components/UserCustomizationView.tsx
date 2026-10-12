@@ -683,6 +683,18 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
     showToast(`"${item.name}" adquirido com sucesso! Já está no seu Inventário.`);
   };
 
+  const handleBuyStoreAvatar = (av: StoreAvatar) => {
+    const price = av.price || 0;
+    if (coins < price) {
+      showToast('Moedas insuficientes para comprar este avatar!');
+      return;
+    }
+    setCoins((prev) => prev - price);
+    setCart((prev) => prev.filter((c) => c.id !== av.id));
+    onAcquireStoreAvatar(av.id);
+    showToast(`Avatar "${av.name}" adquirido por ${price.toLocaleString('pt-BR')} 🪙!`);
+  };
+
   const handleBuyPose = (pose: AvatarPoseConfig) => {
     const isRestricted = Boolean(pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free');
     const userOwnsAvatar =
@@ -978,6 +990,31 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
         owned: true,
         applied: true,
       }));
+
+  // Poses attached to the avatar on the pedestal (store "Poses do avatar" panel)
+  const [posePanelTab, setPosePanelTab] = useState<'avatar' | 'minhas'>('avatar');
+  const [testPoseId, setTestPoseId] = useState<string | null>(null);
+  const avatarStorePoses = poses.filter(
+    (p) =>
+      p.associatedAvatarIds?.includes(currentAvatar.id) ||
+      (!p.associatedAvatarIds?.length &&
+        ((p.pendingAvatarKey &&
+          [currentAvatar.originalItemId, currentAvatar.assetId].includes(p.pendingAvatarKey)) ||
+          (p.pendingAvatarName && p.pendingAvatarName === currentAvatar.name)))
+  );
+  const effectivePoseTab = avatarStorePoses.length > 0 ? posePanelTab : 'minhas';
+  const testPose = poses.find((p) => p.id === testPoseId) || null;
+  const pedestalPose = testPose?.name || activePose;
+  const isPoseAcquired = (p: AvatarPoseConfig) => Boolean(p.owned) || !p.price;
+
+  const keepTestPoseRef = React.useRef(false);
+  useEffect(() => {
+    if (keepTestPoseRef.current) {
+      keepTestPoseRef.current = false;
+      return;
+    }
+    setTestPoseId(null);
+  }, [currentAvatar.id]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0a0b0e] text-[#e8d5b5] font-sans flex flex-col select-none">
@@ -1533,6 +1570,14 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                             >
                               <div className="flex items-center justify-between text-[10px] mb-1">
                                 <span className="font-mono text-[#ffd700] text-[9px] font-bold">POSE</span>
+                                {pose.pendingAvatarKey && (
+                                  <span
+                                    title={`O avatar "${pose.pendingAvatarName || 'anexado'}" ainda não foi publicado`}
+                                    className="text-[9px] font-bold text-amber-300 bg-amber-500/20 px-1 rounded"
+                                  >
+                                    ⚠ Avatar não publicado
+                                  </span>
+                                )}
                                 {pose.applied && (
                                   <span className="text-[9px] font-bold text-[#ffd700] bg-[#ffd700]/20 px-1 rounded">ATIVA</span>
                                 )}
@@ -1884,21 +1929,36 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                                 {av.applied ? 'Aplicado' : 'Aplicar'}
                               </button>
                             ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  addToCart(av);
-                                }}
-                                className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                                  inCart
-                                    ? 'bg-zinc-800 text-zinc-400'
-                                    : 'bg-[#1e2029] hover:bg-[#2b2d39] border border-white/10 text-zinc-200'
-                                }`}
-                              >
-                                <span>{inCart ? 'No Carrinho' : 'Carrinho'}</span>
-                                <ShoppingCart className="w-3 h-3 text-[#d4af37]" />
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleBuyStoreAvatar(av);
+                                  }}
+                                  className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black hover:brightness-110"
+                                >
+                                  <Coins className="w-3.5 h-3.5" />
+                                  <span>
+                                    {av.price > 0 ? `Comprar (${av.price.toLocaleString('pt-BR')} 🪙)` : 'Adquirir grátis'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addToCart(av);
+                                  }}
+                                  className={`px-2 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                                    inCart
+                                      ? 'bg-zinc-800 text-zinc-400 border-white/5'
+                                      : 'bg-[#1e2029] hover:bg-[#2b2d39] border-white/10'
+                                  }`}
+                                  title={inCart ? 'No carrinho' : 'Adicionar ao carrinho'}
+                                >
+                                  <ShoppingCart className="w-3.5 h-3.5 text-[#d4af37]" />
+                                </button>
+                              </div>
                             )}
                           </div>
                         );
@@ -2535,7 +2595,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
           {/* Interactive 3D Avatar or Isolated Object on Dark Obsidian Pedestal */}
           <div className="flex-1 relative w-full h-full">
             <AvatarPedestal3D
-              currentPose={activePose}
+              currentPose={pedestalPose}
               equippedItems={equippedItems}
               avatarName={currentAvatar.name}
               avatarModelUrl={currentAvatar.fileBlobUrl}
@@ -2696,8 +2756,91 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
             </button>
           </div>
 
+          {avatarStorePoses.length > 0 && (
+            <div className="flex gap-1 pt-3">
+              {([
+                ['avatar', `Deste avatar (${avatarStorePoses.length})`],
+                ['minhas', 'Minhas poses'],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setPosePanelTab(id)}
+                  className={`flex-1 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                    effectivePoseTab === id
+                      ? 'bg-[#ffd700] text-black border-[#ffd700]'
+                      : 'bg-black/40 text-zinc-300 border-white/10 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto pt-4 pr-1 space-y-3 scrollbar-thin scrollbar-thumb-zinc-800">
-            {poses.map((pose) => {
+            {effectivePoseTab === 'avatar' && avatarStorePoses.map((pose) => {
+              const isRestricted = pose.access !== 'free';
+              const avatarOwned = Boolean(currentAvatar.owned || currentAvatar.applied);
+              const acquired = isPoseAcquired(pose);
+              const canBuy = !isRestricted || avatarOwned;
+              const isTesting = testPoseId === pose.id;
+              return (
+                <div
+                  key={pose.id}
+                  className={`rounded-xl border p-3 flex flex-col gap-2 ${
+                    isTesting ? 'bg-[#15171e] border-cyan-400/70' : 'bg-[#121317] border-[#22242d]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-zinc-200 truncate">{pose.name}</span>
+                    <span className="text-[10px] font-mono text-zinc-400 whitespace-nowrap">
+                      {acquired ? '✓ Adquirida' : `${pose.price} 🪙`}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono text-zinc-500">
+                    {isRestricted ? '🔒 Só com o avatar' : '🔓 Sem restrição'}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setTestPoseId(isTesting ? null : pose.id)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                        isTesting ? 'bg-cyan-400 text-black' : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200'
+                      }`}
+                    >
+                      {isTesting ? 'Testando…' : '▶ Testar'}
+                    </button>
+                    {acquired ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApplyPose(pose.id);
+                          showToast(`Pose "${pose.name}" aplicada ao Avatar!`);
+                        }}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-[#ffd700]/15 hover:bg-[#ffd700] hover:text-black text-[#ffd700] border border-[#ffd700]/40 cursor-pointer"
+                      >
+                        Aplicar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!canBuy}
+                        onClick={() => handleBuyPose(pose)}
+                        title={canBuy ? 'Adquirir pose' : 'Adquira o avatar primeiro'}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {canBuy ? 'Adquirir' : 'Requer avatar'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {(effectivePoseTab === 'avatar'
+              ? []
+              : poses.filter((p) => !(p.associatedAvatarIds?.length && !isPoseAcquired(p)))
+            ).map((pose) => {
               const isRestricted = Boolean(
                 pose.associatedAvatarIds && pose.associatedAvatarIds.length > 0 && pose.access !== 'free'
               );
@@ -2820,20 +2963,58 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                   </div>
 
                   {isLocked ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const reqNames =
-                          pose.associatedAvatarNames?.join(' ou ') || 'Avatar exclusivo';
-                        showToast(
-                          `⚠️ Pose "${pose.name}" bloqueada! Adquira o avatar "${reqNames}" na loja para usar.`
+                    <div className="space-y-1.5">
+                      {(() => {
+                        const reqAvatar =
+                          storeAvatars.find((a) => pose.associatedAvatarIds?.includes(a.id)) ||
+                          storeAvatars.find((a) => pose.associatedAvatarNames?.includes(a.name));
+                        if (!reqAvatar) return null;
+                        return (
+                          <div className="flex items-center gap-2 p-1.5 rounded-lg bg-black/40 border border-[#d4af37]/30">
+                            <img
+                              src={reqAvatar.thumb}
+                              alt={reqAvatar.name}
+                              className="w-10 h-10 rounded-md object-cover flex-shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[9px] font-mono text-zinc-500 uppercase">Avatar necessário</div>
+                              <div className="text-[11px] font-bold text-zinc-100 truncate">{reqAvatar.name}</div>
+                              <div className="text-[10px] font-mono text-[#ffd700]">
+                                🪙 {(reqAvatar.price || 0).toLocaleString('pt-BR')}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleBuyStoreAvatar(reqAvatar)}
+                              className="px-2 py-1 rounded-md bg-[#d4af37] hover:bg-[#ffd700] text-black text-[10px] font-bold cursor-pointer"
+                            >
+                              Comprar
+                            </button>
+                          </div>
                         );
-                      }}
-                      className="w-full py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-500/40 text-red-300 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <Lock className="w-3.5 h-3.5 text-red-400" />
-                      <span>Requer Avatar</span>
-                    </button>
+                      })()}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target =
+                            storeAvatars.find((a) => pose.associatedAvatarIds?.includes(a.id)) ||
+                            storeAvatars.find((a) => pose.associatedAvatarNames?.includes(a.name));
+                          if (target && target.id !== currentAvatar.id) {
+                            keepTestPoseRef.current = true;
+                            setSelectedAvatarId(target.id);
+                            setSelectedItemToInspect(null);
+                            setSelectedAccessoryId(null);
+                            setActiveAction(null);
+                          }
+                          setTestPoseId(pose.id);
+                          showToast(`👁️ Visualizando a pose "${pose.name}" no pedestal.`);
+                        }}
+                        className="w-full py-1.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-200 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <span>👁️</span>
+                        <span>Ver a pose</span>
+                      </button>
+                    </div>
                   ) : !isFreeOrOwned ? (
                     <button
                       type="button"
